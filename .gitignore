@@ -1,0 +1,13 @@
+.cache/
+build/
+dist/
+vendor/
+*.log
+.DS_Store
+__pycache__/
+*.py[cod]
+state/
+paired.keys
+server.key
+device.id
+audio-delay-ms

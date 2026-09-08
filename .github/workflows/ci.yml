@@ -1,0 +1,17 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host test dependency
+        run: brew install ffmpeg
+      - name: Validate release metadata and documentation
+        run: python3 tools/validate-metadata.py
+      - name: Run sanitizer-backed host tests
+        run: tools/test.sh

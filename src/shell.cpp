@@ -157,7 +157,7 @@ void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     else text(std::string("Open Screen Mirroring and select ")+UXPLAY_DISPLAY_NAME,h/2+20,font_,{178,194,207,255});
     char sync[160];snprintf(sync,sizeof(sync),"◀ ▶  Audio delay: %+d ms  ·  Adjust before connecting",delay);
     text(sync,h-135,font_,{145,167,185,255});
-    text("Same Wi-Fi network  ·  720p / 30 fps  ·  Back to exit",h-80,font_,{145,167,185,255});
+    text("Same Wi-Fi network  ·  Quality in Settings  ·  Back to exit",h-80,font_,{145,167,185,255});
     SDL_RenderPresent(renderer);
 }
 Shell::~Shell() {if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }

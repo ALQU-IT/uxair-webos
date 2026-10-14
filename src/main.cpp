@@ -57,11 +57,29 @@ int main() {
     UsageStats usage;
     load_usage_stats(state_dir+"/usage-v1",usage);
     Receiver receiver;
-    if(!receiver.start(state_dir,settings)) {
-        shell.screen("Could not start. See uxplay.log","");
-        while(shell.pump())SDL_Delay(50);
-        return 1;
+    bool receiver_started=receiver.start(state_dir,settings);
+    if(!receiver_started) {
+        receiver.stop();
+        if(settings.width==1920) {
+            fprintf(stderr,"[settings] 1080p receiver start failed; trying 720p recovery\n");
+            set_mirror_resolution(settings,1280,720);
+            receiver_started=receiver.start(state_dir,settings);
+            if(receiver_started) {
+                if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] recovery save failed\n");
+                receiver.show("1080p startup failed. Restored 720p; reconnect sender.");
+            } else receiver.stop();
+        }
+        if(!receiver_started) {
+            shell.screen("Could not start. See uxplay.log","");
+            while(shell.pump())SDL_Delay(50);
+            return 1;
+        }
     }
+    auto activate_profile=[&](const Settings& requested)->bool {
+        receiver.disconnect();receiver.stop();
+        if(receiver.start(state_dir,requested))return true;
+        receiver.stop();return false;
+    };
     const char *app_id=getenv("APPID");if(!app_id)app_id=UXPLAY_APP_ID;
     Media media;AudioDecoder decoder;
     UiPage page=UiPage::Home;
@@ -74,7 +92,7 @@ int main() {
     ReceiverDiagnostics live_queue;
     long live_rss_kb=-1;
     bool opened=false,have_pending=false,last_paused=false,audio_started=false;
-    int width=1280,height=720;
+    int width=settings.width,height=settings.height;
     Packet pending;
     std::vector<uint8_t> configuration;
     uint64_t origin=0;
@@ -125,18 +143,29 @@ int main() {
         focus=0;reset_armed=false;
         video_feed_timing.reset();video_parse_time.reset();video_schedule_late.reset();video_pending_time.reset();
         video_feed_time.reset();audio_feed_time.reset();media_tick_time.reset();
+        width=settings.width;height=settings.height;
+    };
+    auto recover_1080_decoder=[&](){
+        if(settings.width!=1920) {receiver.show("TV decoder failed. Connect again.");return;}
+        ProfileSwitchResult result=switch_mirror_profile(settings,1280,720,activate_profile);
+        if(result==ProfileSwitchResult::Applied) {
+            if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] recovery save failed\n");
+            receiver.show("1080p decoder failed. Restored 720p; reconnect sender.");
+            fprintf(stderr,"[settings] 1080p decoder failed; restored 720p advertisement\n");
+        } else receiver.show("Decoder failed. Restart app and select 720p.");
     };
     auto rows_for=[&](UiPage which)->std::vector<UiRow> {
         std::vector<UiRow> rows;
         if(which==UiPage::Home) {
-            rows.push_back(UiRow("Quality settings","Open","720p / 30 FPS is the active profile"));
+            rows.push_back(UiRow("Quality settings","Open",std::string(settings.width==1920?"1080p experimental":"720p proven")+" / 30 FPS"));
             rows.push_back(UiRow("Usage statistics","Open","Local playback history only"));
             rows.push_back(UiRow("Live diagnostics","Open","Incoming and feed rates; displayed FPS unavailable"));
             rows.push_back(UiRow("Capabilities","Open","Protocol, 4K, HDR and direct-media status"));
             rows.push_back(UiRow("Audio delay",std::to_string(receiver.audio_delay_ms.load())+" ms","Left / Right adjusts before playback"));
         } else if(which==UiPage::Settings) {
-            rows.push_back(UiRow("Screen mirroring","720p","1280 x 720 advertised; source aspect ratio retained"));
-            rows.push_back(UiRow("1080p","Locked","Needs B7 negotiation and decoder validation",false));
+            bool selectable=receiver.idle_for_profile_change();
+            rows.push_back(UiRow("720p / 30 FPS",settings.width==1280?"Selected":"Choose","Known-good recovery profile; reconnect sender",selectable));
+            rows.push_back(UiRow("1080p / 30 FPS",settings.width==1920?"Selected":"Try","Experimental on B7; reconnect and check actual SPS",selectable));
             rows.push_back(UiRow("4K","Unavailable","HEVC and 4K buffers are not implemented",false));
             rows.push_back(UiRow("Frame rate","30 FPS","Sender maximum; actual input shown in diagnostics"));
             rows.push_back(UiRow("60 FPS","Locked","Needs separate sender and B7 tests",false));
@@ -153,7 +182,7 @@ int main() {
             rows.push_back(UiRow(reset_armed?"Press OK again to reset":"Reset usage history","Local only","Pairing and receiver identity are retained"));
         } else if(which==UiPage::Diagnostics) {
             std::string resolution=observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting SPS";
-            rows.push_back(UiRow("Incoming video",resolution,"H.264; bit depth and HDR metadata unavailable"));
+            rows.push_back(UiRow("Incoming SPS",resolution,"Advertised "+std::to_string(settings.width)+" x "+std::to_string(settings.height)+" / 30; H.264 SDR"));
             rows.push_back(UiRow("Incoming / feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),"One-second callback and accepted-feed windows"));
             rows.push_back(UiRow("Source PTS / display FPS",fmt("%.1f",live_pts_fps)+" / N/A","FRAMEREADY is throttled, not panel presentation"));
             rows.push_back(UiRow("Video / audio queue",std::to_string(live_queue.video_queue_packets)+" / "+std::to_string(live_queue.queue_packets-live_queue.video_queue_packets),"Video queue residence "+fmt("%.1f",live_queue_ms)+" ms, last 5s"));
@@ -170,11 +199,11 @@ int main() {
             }
             if(rows.empty())rows.push_back(UiRow("No completed sessions yet","","Playback history stays on this TV"));
         } else {
-            rows.push_back(UiRow("Screen Mirroring","H.264 720p/30","Working on B7; legacy pairing path"));
+            rows.push_back(UiRow("Screen Mirroring",settings.width==1920?"H.264 1080p/30 exp":"H.264 720p/30","720p working on B7; 1080p unverified"));
             rows.push_back(UiRow("AirPlay 2","Partial","Modern sender interop is not full AirPlay 2"));
             rows.push_back(UiRow("Standalone audio","Unavailable","Audio currently plays with mirroring only",false));
             rows.push_back(UiRow("Direct photos / video","Unavailable","Photos through mirroring work; HLS is off",false));
-            rows.push_back(UiRow("1080p / 60 FPS","Untested","Experimental gates remain closed",false));
+            rows.push_back(UiRow("1080p / 60 FPS","Unavailable","1080p/30 is experimental; 60 FPS remains locked",false));
             rows.push_back(UiRow("HEVC / 4K / HDR","Unavailable","No verified codec and color metadata path",false));
             rows.push_back(UiRow("Presented FPS","Unavailable","TV callback is throttled, not frame presentation",false));
         }
@@ -214,6 +243,24 @@ int main() {
         }
         if(page==UiPage::Settings && !opened && (action==Action::Left||action==Action::Right||action==Action::Select)) {
             bool changed=false;
+            if(focus==0 || focus==1) {
+                if(receiver.idle_for_profile_change()) {
+                    const int target=action==Action::Left?1280:action==Action::Right?1920:focus==0?1280:1920;
+                    const Settings previous=settings;
+                    ProfileSwitchResult result=switch_mirror_profile(settings,target,target==1920?1080:720,activate_profile);
+                    if(result==ProfileSwitchResult::Applied) {
+                        if(save_settings(state_dir+"/settings-v1",settings))
+                            receiver.show(std::string(target==1920?"1080p experimental":"720p")+" advertised. Reconnect sender; check incoming SPS.");
+                        else {
+                            fprintf(stderr,"[settings] save failed; restoring previous receiver profile\n");
+                            bool restored=activate_profile(previous);settings=previous;
+                            receiver.show(restored?"Could not save quality; previous profile restored.":"Quality save and recovery failed. Restart app.");
+                        }
+                    } else if(result==ProfileSwitchResult::Recovered) receiver.show("Quality start failed; previous profile restored.");
+                    else if(result==ProfileSwitchResult::Unavailable) receiver.show("Receiver unavailable. Restart app to recover.");
+                    last_ui=0;
+                } else receiver.show("Disconnect sender before changing quality.");
+            }
             if(focus==5) {settings.hdr=settings.hdr==HdrPolicy::Auto?HdrPolicy::Sdr:HdrPolicy::Auto;changed=true;}
             if(focus==6) {int mode=int(settings.diagnostics);mode=(mode+(action==Action::Left?2:1))%3;settings.diagnostics=DiagnosticsMode(mode);changed=true;}
             if(changed) {if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");last_ui=0;}
@@ -233,7 +280,7 @@ int main() {
             media_tick_time.record(uint64_t(std::max<int64_t>(0,now_ns()-tick_begin)));
             bool paused=receiver.paused;
             if(paused!=last_paused) {media.pause(paused);last_paused=paused;}
-            if(media.failed) {++hardware_decoder_errors;finish(true);receiver.show("Playback error. Connect again.");}
+            if(media.failed) {++hardware_decoder_errors;finish(true);recover_1080_decoder();}
             if(opened && media.playing && video_count)session_success=true;
             // Some senders negotiate audio after mirroring starts. Prime the PCM
             // track only until the first real packet arrives. Filling later gaps
@@ -264,7 +311,7 @@ int main() {
                     shell.page(page,"Live session  •  Press Back to return to playback",rows_for(page),focus,"Incoming and Feed are receiver rates  •  Displayed FPS unavailable");
                 } else if(settings.diagnostics!=DiagnosticsMode::Off) {
                     std::vector<std::string> lines;
-                    lines.push_back(std::string("H.264 ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"resolution pending")+"  HDR unavailable");
+                    lines.push_back(std::string("H.264 SPS ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"pending")+"  advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height));
                     lines.push_back("Incoming "+fmt("%.1f",live_incoming_fps)+"  Feed "+fmt("%.1f",live_feed_fps)+" FPS  Displayed N/A");
                     lines.push_back("Video queue "+std::to_string(live_queue.video_queue_packets)+"  Drops "+std::to_string(live_queue.dropped_video_frames));
                     if(settings.diagnostics==DiagnosticsMode::Detailed) {
@@ -294,8 +341,8 @@ int main() {
             if(opened) fprintf(stderr,"[video] incoming_fps=%.2f pts_fps=%.2f frame_ms_avg=%.2f min=%.2f max=%.2f feed_fps=%.2f decoder_events_s=%.2f invalid=%u queue_dropped_frames=%llu\n",
                 incoming_fps,pts_fps,avg_frame_ms,timing.interval_min_ns/1e6,timing.interval_max_ns/1e6,
                 (media.feed_video_accepted.load()-last_feed_video)/window_s,event_delta/window_s,invalid_video,(unsigned long long)q.dropped_video_frames);
-            if(opened) fprintf(stderr,"[pipeline] queue=%zu/512 packets bytes=%zu/4194304 (%.1f%%) peak=%zu packets/%zu bytes dropped_packets=%llu retries_video=%llu retries_audio=%llu feed_audio_fps=%.2f feed_avg_us=%.1f feed_max_us=%.1f\n",
-                q.queue_packets,q.queue_bytes,q.queue_bytes*100.0/4194304,q.peak_queue_packets,q.peak_queue_bytes,
+            if(opened) fprintf(stderr,"[pipeline] queue=%zu/512 packets bytes=%zu/%zu (%.1f%%) peak=%zu packets/%zu bytes dropped_packets=%llu retries_video=%llu retries_audio=%llu feed_audio_fps=%.2f feed_avg_us=%.1f feed_max_us=%.1f\n",
+                q.queue_packets,q.queue_bytes,receiver.max_queue_bytes,q.queue_bytes*100.0/receiver.max_queue_bytes,q.peak_queue_packets,q.peak_queue_bytes,
                 (unsigned long long)q.dropped_packets,
                 (unsigned long long)(media.feed_video_retries.load()-last_feed_video_retries),
                 (unsigned long long)(media.feed_audio_retries.load()-last_feed_audio_retries),
@@ -349,16 +396,16 @@ int main() {
             if(info.width) {
                 if(!input_fits_mirror_profile(settings,info.width,info.height)) {
                     fprintf(stderr,"[video] sender resolution %dx%d exceeds selected profile %dx%d\n",info.width,info.height,settings.width,settings.height);
-                    finish(true);receiver.show("Sender resolution exceeds 720p profile");continue;
+                    finish(true);receiver.show("Sender resolution exceeds selected profile");continue;
                 }
                 width=observed_width=info.width;height=observed_height=info.height;
             }
-            if(!info.keyframe||configuration.empty()) {have_pending=false;continue;}
+            if(!info.keyframe||configuration.empty()||!observed_width) {have_pending=false;continue;}
             int64_t open_begin=now_ns();
-            bool media_opened=media.open(app_id,width,height,true);
+            bool media_opened=media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,settings.width,settings.height);
             fprintf(stderr,"[media-init] open_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
             if(!media_opened) {
-                finish(true);receiver.show("Could not open the TV decoder.");continue;
+                finish(true);recover_1080_decoder();continue;
             }
             // The pre-roll starts after synchronous decoder initialization.
             // Reusing the loop's old `now` would silently consume it in Load().
@@ -387,7 +434,7 @@ int main() {
             if(info.width) {
                 if(!input_fits_mirror_profile(settings,info.width,info.height)) {
                     fprintf(stderr,"[video] sender resolution %dx%d exceeds selected profile %dx%d\n",info.width,info.height,settings.width,settings.height);
-                    finish(true);receiver.show("Sender resolution exceeds 720p profile");continue;
+                    finish(true);receiver.show("Sender resolution exceeds selected profile");continue;
                 }
                 observed_width=info.width;observed_height=info.height;
             }
@@ -395,9 +442,9 @@ int main() {
             if(info.width && (width!=info.width||height!=info.height)) {
                 media.close();width=info.width;height=info.height;
                 int64_t open_begin=now_ns();
-                bool media_opened=info.keyframe && media.open(app_id,width,height,true);
+                bool media_opened=info.keyframe && media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,settings.width,settings.height);
                 fprintf(stderr,"[media-init] reopen_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
-                if(!media_opened) {finish(true);continue;}
+                if(!media_opened) {finish(true);recover_1080_decoder();continue;}
                 origin=pending.timestamp;start=now_ns();pts=0;audio_end=0;audio_started=false;decoder.reset();
                 video_feed_timing.reset();
                 live_feed_last=0;
@@ -448,7 +495,7 @@ int main() {
             if(!stall)stall=now;
             if(now-stall>3000000000LL){finish(true);receiver.show("Playback stopped. Connect again.");}
             SDL_Delay(5);
-        } else {finish(true);receiver.show("Stream failure. Connect again.");}
+        } else {finish(true);recover_1080_decoder();}
     }
     if(opened)finish();
     receiver.stop();media.close();

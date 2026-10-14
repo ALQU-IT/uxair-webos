@@ -18,6 +18,10 @@ static void log_message(void *,int level,const char *text) {
 void Receiver::show(const std::string& s) { std::lock_guard<std::mutex> l(mutex);message=s; }
 std::string Receiver::status() { std::lock_guard<std::mutex> l(mutex);return message; }
 std::string Receiver::pin() { std::lock_guard<std::mutex> l(mutex);return pin_text; }
+bool Receiver::idle_for_profile_change() {
+    std::lock_guard<std::mutex> l(mutex);
+    return client.empty() && pin_text.empty() && !mirror.load();
+}
 ReceiverDiagnostics Receiver::diagnostics() {
     std::lock_guard<std::mutex> l(mutex);
     ReceiverDiagnostics d;
@@ -47,7 +51,14 @@ VideoTimingSample Receiver::take_video_timing() {
     return video_timing.take_window();
 }
 void Receiver::enqueue(bool video,unsigned codec,uint64_t time,const uint8_t *data,int size) {
-    if (!data || size<=0 || size>1048576 || !time) return;
+    if (!data || size<=0 || !time) return;
+    const size_t packet_limit=video?max_video_packet_bytes:size_t(1024*1024);
+    if (size_t(size)>packet_limit) {
+        std::lock_guard<std::mutex> l(mutex);
+        ++overflow;++dropped_packets;if(video)++dropped_video_frames;
+        fprintf(stderr,"[queue] oversized %s packet bytes=%d limit=%zu\n",video?"video":"audio",size,packet_limit);
+        reset=true;return;
+    }
     const int64_t arrival=now_ns();
     activity=arrival;
     if(video) {last_video_arrival=arrival;++total_video_arrivals;}
@@ -67,7 +78,7 @@ void Receiver::enqueue(bool video,unsigned codec,uint64_t time,const uint8_t *da
     ingress_copy.record(uint64_t(std::max<int64_t>(0,copy_done-arrival)));
     queue_lock_wait.record(uint64_t(std::max<int64_t>(0,lock_acquired-copy_done)));
     if(video) video_timing.record(time,arrival);
-    if (bytes+size>4*1024*1024 || packets.size()>=512) {
+    if (bytes+size>max_queue_bytes || packets.size()>=512) {
         ++overflow;++dropped_packets;if(video)++dropped_video_frames;reset=true;return;
     }
     p.enqueued_ns=now_ns();
@@ -104,6 +115,11 @@ static bool valid_key(const char *p) {
 }
 bool Receiver::start(const std::string& dir, const Settings& settings) {
     const AdvertisedCapabilities capabilities=advertised_capabilities(settings);
+    active_profile=settings;validate_settings(active_profile);
+    const MirrorLimits limits=mirror_limits(active_profile);
+    max_video_packet_bytes=limits.video_packet_bytes;
+    max_queue_bytes=limits.queue_bytes;
+    width=capabilities.width;height=capabilities.height;
     directory=dir; mkdir(directory.c_str(),0700);
     std::ifstream audio_delay_file(directory+"/audio-delay-ms");int delay;
     if(audio_delay_file>>delay)audio_delay_ms=std::max(-1000,std::min(1000,delay));
@@ -141,7 +157,12 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     cb.audio_set_volume=[](void *p,float db){self(p).volume=db<=-144?0:std::min(1.0f,std::pow(10.0f,db/20.0f));};
     cb.audio_get_format=[](void *p,unsigned char *,unsigned short *,bool *,bool *,uint64_t *){self(p).has_audio=true;};
     cb.video_report_size=[](void *p,float *,float *,float *w,float *h){
-        if(std::isfinite(*w)&&std::isfinite(*h)&&*w>0&&*h>0&&*w<=1920&&*h<=1920) {self(p).width=int(*w);self(p).height=int(*h);}
+        Receiver& r=self(p);
+        if(std::isfinite(*w)&&std::isfinite(*h)&&*w>0&&*h>0&&*w<=1920&&*h<=1920&&
+           input_fits_mirror_profile(r.active_profile,int(*w),int(*h))) {
+            r.width=int(*w);r.height=int(*h);
+            fprintf(stderr,"[receiver] sender reported geometry=%dx%d\n",int(*w),int(*h));
+        }
     };
     cb.video_set_codec=[](void *,video_codec_t c)->int{return c==VIDEO_CODEC_H264?0:-1;};
     cb.mirror_video_running=[](void *p,bool running){self(p).mirror=running;};
@@ -170,8 +191,13 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     raop=raop_init(&cb);if(!raop) return false;
     raop_set_log_callback(raop,log_message,this);raop_set_log_level(raop,LOGGER_INFO);
     if(raop_init2(raop,0,device_id,(directory+"/server.key").c_str()))return false;
-    raop_set_plist(raop,"width",capabilities.width);raop_set_plist(raop,"height",capabilities.height);
-    raop_set_plist(raop,"refreshRate",capabilities.max_fps);raop_set_plist(raop,"maxFPS",capabilities.max_fps);raop_set_plist(raop,"pin",0);
+    if(raop_set_plist(raop,"width",capabilities.width) ||
+       raop_set_plist(raop,"height",capabilities.height) ||
+       raop_set_plist(raop,"refreshRate",capabilities.max_fps) ||
+       raop_set_plist(raop,"maxFPS",capabilities.max_fps) ||
+       raop_set_plist(raop,"pin",0)) return false;
+    fprintf(stderr,"[receiver] advertised mirror=%dx%d/%d max video packet=%zu queue=%zu\n",
+            capabilities.width,capabilities.height,capabilities.max_fps,max_video_packet_bytes,max_queue_bytes);
     raop_set_dnssd(raop,dnssd);
     unsigned short udp[3]={0,0,0},tcp[2]={0,0},port=0;
     raop_set_udp_ports(raop,udp);raop_set_tcp_ports(raop,tcp);

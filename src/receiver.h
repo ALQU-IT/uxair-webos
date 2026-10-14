@@ -38,6 +38,7 @@ struct Receiver {
     std::string status();
     void show(const std::string& text);
     std::string pin();
+    bool idle_for_profile_change();
     void adjust_audio_delay(int delta_ms);
     std::atomic<int> audio_delay_ms{100};
     std::atomic<bool> reset{false}, audio_flush{false}, paused{false}, has_audio{false}, mirror{false};
@@ -50,6 +51,8 @@ struct Receiver {
     std::atomic<unsigned> last_audio_codec{0};
     std::atomic<unsigned> overflow{0};
     std::atomic<unsigned> session_resets{0};
+    size_t max_video_packet_bytes=1024*1024, max_queue_bytes=4*1024*1024;
+    Settings active_profile;
     raop_t *raop = nullptr;
     dnssd_t *dnssd = nullptr;
     std::mutex mutex;

@@ -9,7 +9,8 @@ class Media {
 public:
     Media();
     ~Media();
-    bool open(const char *app_id, int width, int height, bool audio, int sample_rate = 44100);
+    bool open(const char *app_id, int width, int height, bool audio, int sample_rate = 44100,
+              int video_source_buffer_bytes = 1048576, int canvas_width = 0, int canvas_height = 0);
     FeedResult feed(const void *data, size_t size, int64_t pts_ns, bool video);
     void tick();
     void eos();

@@ -1,4 +1,5 @@
 #include "media.h"
+#include "settings.h"
 #include <StarfishMediaAPIs.h>
 #include <AcbAPI.h>
 #include <cstdio>
@@ -36,7 +37,14 @@ void Media::event(int type, int64_t value, const char *message, void *user) {
     default: break;
     }
 }
-bool Media::open(const char *app_id, int width, int height, bool audio, int rate) {
+bool Media::open(const char *app_id, int width, int height, bool audio, int rate,
+                 int video_source_buffer_bytes, int canvas_width, int canvas_height) {
+    if (width<=0 || height<=0 || video_source_buffer_bytes<1048576 || video_source_buffer_bytes>2097152)
+        return false;
+    if (!canvas_width) canvas_width=width;
+    if (!canvas_height) canvas_height=height;
+    const VideoWindow window=fit_video_window(width,height,canvas_width,canvas_height);
+    if (!window.width || !window.height) return false;
     close();
     ready = playing = ended = failed = false;
     frames = 0;
@@ -75,7 +83,7 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
                  << ",\"bitsPerSample\":16,\"layout\":\"interleaved\"}";
     p << "},\"restartStreaming\":false,\"streamQualityInfo\":true,\"streamQualityInfoNonFlushable\":true,\"totalStreamSize\":256,"
          "\"bufferingCtrInfo\":{\"preBufferByte\":0,\"bufferMinLevel\":0,\"bufferMaxLevel\":0,\"qBufferLevelAudio\":0,\"qBufferLevelVideo\":0,"
-         "\"srcBufferLevelAudio\":{\"minimum\":1024,\"maximum\":131072},\"srcBufferLevelVideo\":{\"minimum\":1024,\"maximum\":1048576}}},"
+         "\"srcBufferLevelAudio\":{\"minimum\":1024,\"maximum\":131072},\"srcBufferLevelVideo\":{\"minimum\":1024,\"maximum\":" << video_source_buffer_bytes << "}}},"
          "\"adaptiveStreaming\":{\"audioOnly\":false,\"maxWidth\":" << width << ",\"maxHeight\":" << height << ",\"maxFrameRate\":30}}}]}";
     fprintf(stderr, "[media] Load %s\n", p.str().c_str());
     phase=monotonic_ns();
@@ -83,8 +91,9 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
     fprintf(stderr,"[media-init] Starfish Load end ms=%.2f success=%d\n",(monotonic_ns()-phase)/1e6,int(loaded_));
     if (!loaded_) { close(); return false; }
     phase=monotonic_ns();
-    AcbAPI_setDisplayWindow(acb_, 0, 0, width, height, true, &task_);
-    fprintf(stderr,"[media-init] ACB display window end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
+    AcbAPI_setDisplayWindow(acb_, window.x, window.y, window.width, window.height, true, &task_);
+    fprintf(stderr,"[media-init] ACB display window=%d,%d %dx%d source=%dx%d end ms=%.2f\n",
+            window.x,window.y,window.width,window.height,width,height,(monotonic_ns()-phase)/1e6);
     return true;
 }
 void Media::tick() {

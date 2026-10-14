@@ -45,6 +45,8 @@ int main() {
         ++attempts;return s.width==1280;
     })==ProfileSwitchResult::Recovered);
     assert(attempts==2 && settings.width==1280); // failed activation rolls back
+    assert(switch_mirror_profile(settings,1920,1080,[&](const Settings&){return false;})==ProfileSwitchResult::Unavailable);
+    assert(settings.width==1280 && settings.height==720);
     assert(switch_mirror_profile(settings,3840,2160,[&](const Settings&){++attempts;return true;})==ProfileSwitchResult::Unchanged);
     assert(attempts==2);
     assert(switch_mirror_profile(settings,1920,1080,[&](const Settings&){return true;})==ProfileSwitchResult::Applied);
@@ -58,6 +60,7 @@ int main() {
     assert(landscape.x==0 && landscape.y==0 && landscape.width==1920 && landscape.height==1080);
     VideoWindow portrait=fit_video_window(1080,1920,1920,1080);
     assert(portrait.x==656 && portrait.y==0 && portrait.width==607 && portrait.height==1080);
+    assert(fit_video_window(0,1080,1920,1080).width==0);
     assert(save_settings(settings_path,settings));
     assert(load_settings(settings_path,loaded));
     assert(loaded.width==1920 && loaded.height==1080 && loaded.max_fps==30);

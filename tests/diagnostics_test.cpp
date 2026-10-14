@@ -15,8 +15,8 @@ int main() {
     assert(sample.interval_max_ns==33333334ULL);
 
     // Backwards timestamps and large discontinuities do not pollute cadence.
-    timing.record(2000000000ULL);
-    timing.record(1990000000ULL);
+    timing.record(4000000000ULL);
+    timing.record(3990000000ULL);
     timing.record(9000000000ULL);
     sample=timing.take_window();
     assert(sample.frames==3);

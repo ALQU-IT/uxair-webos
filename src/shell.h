@@ -1,10 +1,10 @@
 #pragma once
 #include <SDL.h>
+#include "input.h"
 #include <cstdint>
 #include <string>
 #include <vector>
 struct _TTF_Font;
-enum class Action { None, Back, Exit, Left, Right, Up, Down, Select };
 enum class UiPage { Home, Settings, Statistics, Diagnostics, Capabilities, History };
 struct UiRow {
     std::string label, value, note;
@@ -25,6 +25,7 @@ public:
     void transparent();
     ~Shell();
 private:
+    InputMapper input_{SDL_SCANCODE_UNKNOWN, SDL_SCANCODE_UNKNOWN};
     _TTF_Font *font_=nullptr, *large_=nullptr, *small_=nullptr;
     void text(const std::string&,int y,_TTF_Font*,SDL_Color);
     void text_at(const std::string&,int x,int y,int max_width,_TTF_Font*,SDL_Color);

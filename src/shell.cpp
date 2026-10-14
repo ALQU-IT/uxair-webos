@@ -39,6 +39,7 @@ void rotate_log() {
 }
 bool Shell::open() {
     signal(SIGTERM, signal_stop); signal(SIGINT, signal_stop);
+    input_ = InputMapper(SDL_WEBOS_SCANCODE_BACK, SDL_WEBOS_SCANCODE_EXIT);
     setenv("EGL_PLATFORM", "wayland", 0); setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 0);
     SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_BACK, "true");
     SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_EXIT, "true");
@@ -62,17 +63,27 @@ void Shell::transparent() {
 }
 Action Shell::action() {
     SDL_Event e;
+    static Uint32 last_motion_log_ms = 0;
     while (SDL_PollEvent(&e)) {
-        if (e.type == SDL_QUIT) return Action::Exit;
-        if (e.type == SDL_KEYDOWN) {
-            if(e.key.keysym.scancode==SDL_SCANCODE_LEFT)return Action::Left;
-            if(e.key.keysym.scancode==SDL_SCANCODE_RIGHT)return Action::Right;
-            if(e.key.keysym.scancode==SDL_SCANCODE_UP)return Action::Up;
-            if(e.key.keysym.scancode==SDL_SCANCODE_DOWN)return Action::Down;
-            if(e.key.keysym.scancode==SDL_SCANCODE_RETURN || e.key.keysym.scancode==SDL_SCANCODE_KP_ENTER)return Action::Select;
-            if(e.key.keysym.scancode==SDL_WEBOS_SCANCODE_EXIT) return Action::Exit;
-            if(e.key.keysym.scancode==SDL_WEBOS_SCANCODE_BACK || e.key.keysym.scancode==SDL_SCANCODE_ESCAPE || e.key.keysym.scancode==SDL_SCANCODE_AC_BACK) return Action::Back;
+        const Uint32 now = SDL_GetTicks();
+        if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
+            if (!e.key.repeat)
+                fprintf(stderr,"[input] key %s keycode=%ld scancode=%d repeat=%u\n",
+                        e.type == SDL_KEYDOWN ? "down" : "up",
+                        static_cast<long>(e.key.keysym.sym),
+                        static_cast<int>(e.key.keysym.scancode), e.key.repeat);
+        } else if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
+            fprintf(stderr,"[input] mouse %s button=%u clicks=%u x=%d y=%d\n",
+                    e.type == SDL_MOUSEBUTTONDOWN ? "down" : "up",
+                    e.button.button, e.button.clicks, e.button.x, e.button.y);
+        } else if (e.type == SDL_MOUSEMOTION &&
+                   (last_motion_log_ms == 0 || Uint32(now - last_motion_log_ms) >= 5000)) {
+            fprintf(stderr,"[input] pointer motion x=%d y=%d buttons=%u\n",
+                    e.motion.x, e.motion.y, e.motion.state);
+            last_motion_log_ms = now;
         }
+        const Action mapped = input_.map(e, now);
+        if (mapped != Action::None) return mapped;
     }
     return interrupted?Action::Exit:Action::None;
 }

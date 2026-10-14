@@ -4,6 +4,25 @@ The [capability assessment](CAPABILITIES.md) is the source of truth for working 
 
 ## TV interface
 
+### Magic Remote OK input
+
+The AN-MR650 wheel press may arrive as an SDL left mouse button press. The
+interface now treats `SDL_MOUSEBUTTONDOWN` with `SDL_BUTTON_LEFT` as Select,
+alongside Return, keypad Enter, and SDL's standard Select key. Directional,
+Back and Exit mappings are unchanged. A key press and left-button press within
+120 ms of one another yield one Select; rapid clicks from the same event source
+remain distinct. Auto-repeat of a held Select key is ignored.
+
+The SDL webOS key mapping explicitly handles LG Back and Exit, but does not
+define a dedicated LG OK scancode. The precise AN-MR650 event on Rockhopper
+3.9.0 still needs a TV log. Temporary `[input]` log lines record keyboard
+keycode/scancode, mouse button number and pointer position (motion is sampled
+at most once every five seconds). After manually installing the new development
+IPK, press OK once on a harmless menu row and inspect `uxplay.log` for the
+resulting key and/or `mouse down button=1` lines. Check that a single press
+opens only one page or changes only one setting, then verify arrows, Back and
+Exit. Please share that short excerpt to confirm the final device mapping.
+
 On the idle screen, use Up/Down to focus **Quality settings**, **Usage statistics**, **Live diagnostics** or **Capabilities** and press OK. Back returns to the home screen; Back from home exits when idle. Left/Right on home continues to adjust the existing audio delay. During playback, OK opens the diagnostic page and Back hides it; Back from the normal playback view disconnects as before. The sender PIN remains visible on the home screen.
 
 Quality settings shows the active 720p/30 profile and explains why 1080p, 60 FPS and 4K are locked. The HDR policy can be set to Auto or SDR, but both use the current SDR pipeline; Auto does **not** indicate detected HDR. On-screen diagnostics can be Off, Compact or Detailed. The default is Off. Changes to these UI preferences are saved atomically in `state/settings-v1` and take effect without renegotiating an active session. Unsupported quality values in an old settings file fall back to 720p/30 at load time.

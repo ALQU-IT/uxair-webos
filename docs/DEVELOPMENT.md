@@ -8,7 +8,7 @@ On Ubuntu 24.04 (including WSL2 Ubuntu), install the prerequisites:
 
 ```sh
 sudo apt-get update
-sudo apt-get install --yes build-essential ffmpeg pkg-config libavcodec-dev libavutil-dev libswresample-dev
+sudo apt-get install --yes build-essential ffmpeg pkg-config libsdl2-dev libavcodec-dev libavutil-dev libswresample-dev
 ```
 
 Run just the diagnostics test:
@@ -17,7 +17,7 @@ Run just the diagnostics test:
 tools/test.sh --diagnostics-only
 ```
 
-Run the complete native test suite, including H.264 landscape/portrait parsing, malformed input, PCM validation, and AAC-LC decoding:
+Run the complete native test suite, including SDL remote input mapping, H.264 landscape/portrait parsing, malformed input, PCM validation, and AAC-LC decoding:
 
 ```sh
 tools/test.sh

@@ -105,8 +105,8 @@ static bool valid_key(const char *p) {
 bool Receiver::start(const std::string& dir, const Settings& settings) {
     const AdvertisedCapabilities capabilities=advertised_capabilities(settings);
     directory=dir; mkdir(directory.c_str(),0700);
-    std::ifstream settings(directory+"/audio-delay-ms");int delay;
-    if(settings>>delay)audio_delay_ms=std::max(-1000,std::min(1000,delay));
+    std::ifstream audio_delay_file(directory+"/audio-delay-ms");int delay;
+    if(audio_delay_file>>delay)audio_delay_ms=std::max(-1000,std::min(1000,delay));
     std::ifstream f(directory+"/paired.keys");std::string line;
     while(std::getline(f,line)) if(valid_key(line.c_str())) keys.insert(line);
     uint8_t mac[6];

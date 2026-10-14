@@ -39,7 +39,8 @@ void rotate_log() {
 }
 bool Shell::open() {
     signal(SIGTERM, signal_stop); signal(SIGINT, signal_stop);
-    input_ = InputMapper(SDL_WEBOS_SCANCODE_BACK, SDL_WEBOS_SCANCODE_EXIT);
+    input_ = InputMapper(static_cast<SDL_Scancode>(SDL_WEBOS_SCANCODE_BACK),
+                         static_cast<SDL_Scancode>(SDL_WEBOS_SCANCODE_EXIT));
     setenv("EGL_PLATFORM", "wayland", 0); setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 0);
     SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_BACK, "true");
     SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_EXIT, "true");

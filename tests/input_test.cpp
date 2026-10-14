@@ -19,8 +19,9 @@ static SDL_Event button(Uint8 which, Uint32 type = SDL_MOUSEBUTTONDOWN) {
 }
 
 int main() {
-    const SDL_Scancode back = static_cast<SDL_Scancode>(SDL_NUM_SCANCODES - 2);
-    const SDL_Scancode exit = static_cast<SDL_Scancode>(SDL_NUM_SCANCODES - 1);
+    // Integer values from the pinned webOS SDK's SDL_webOS.h.
+    const SDL_Scancode back = static_cast<SDL_Scancode>(482);
+    const SDL_Scancode exit = static_cast<SDL_Scancode>(505);
     InputMapper mapper(back, exit);
     assert(mapper.map(key(SDL_SCANCODE_UP), 1) == Action::Up);
     assert(mapper.map(key(SDL_SCANCODE_DOWN), 2) == Action::Down);

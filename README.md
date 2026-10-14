@@ -62,7 +62,7 @@ The corresponding source archive is `dist/uxplay-webos-0.1.0-source.tar.gz`; it 
 
 `src/receiver.cpp` integrates the pinned UxPlay core and handles discovery, PIN pairing, and bounded packet queues. `src/main.cpp` owns session lifecycle and timing. `src/media.cpp` feeds the TV hardware decoder through Starfish Media Pipeline and ACB, while FFmpeg decodes AAC-ELD, AAC-LC, ALAC, and PCM to stereo PCM. SDL owns the window and remote input while the hardware video plane remains visible.
 
-Queues are capped at 4 MiB/512 packets. Decoder stalls, timestamp discontinuities, and queue overflow end the current session rather than allowing uncontrolled memory growth.
+Queues are capped at 4 MiB/512 packets in the default 720p profile and 8 MiB/512 packets in the experimental 1080p profile. Decoder stalls, timestamp discontinuities, and queue overflow end the current session rather than allowing uncontrolled memory growth.
 
 Every five seconds, `uxplay.log` records lightweight diagnostics while a session is active: incoming H.264 access-unit FPS, FPS and interval spread derived from remote presentation timestamps, accepted Starfish feed rate, decoder callback rate, feed retries and call latency, queue occupancy/high-water marks and drops, audio decode time/errors, process RSS, and session/reset counts. The incoming rate is measured at packet ingress. `FRAMEREADY` is a throttled firmware callback, so its reported rate is an activity signal rather than a precise hardware FPS measurement. Queue limits and playback behavior are unchanged by diagnostics.
 

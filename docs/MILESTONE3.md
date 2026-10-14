@@ -52,3 +52,19 @@ A successful session requires accepted video and a Starfish playing event. Playb
 5. Save `uxplay.log` and any failure timestamps. Restore the saved previous development IPK if navigation, pairing, media playback or stability regresses. The production app ID remains separate.
 
 This phase's package has not been run on the B7 until the owner performs those steps. Experimental 1080p negotiation starts only after phase-one CI and build results have been reported.
+
+## Phase 2: experimental 1080p/30 screen mirroring
+
+The default remains 720p/30. On the idle Quality Settings page, select **1080p / 30 FPS** to advertise 1920×1080 to the next sender session. Select **720p / 30 FPS** for the known-good recovery profile. Left/Right on either quality row also switches between these two profiles. The receiver restarts its discovery service only while no sender or pairing exchange is active. The sender must disconnect and reconnect after a change. The choice is saved in `state/settings-v1` and restored at launch; pairing files and receiver identity are unchanged. A failed receiver startup restores the previous profile; a failed 1080p Starfish decoder initialization restores 720p for the next session. An oversized or unsupported incoming SPS ends only that session.
+
+UxPlay's mirror plist receives the selected 1280×720 or 1920×1080 maximum and 30 FPS. The H.264 SPS remains the source of truth for **incoming** resolution. The diagnostics page and overlay show `Incoming SPS` separately from `Advertised`. A sender that continues to send 720p after selecting 1080p is reported as 720p; neither the UI nor statistics claim native 1080p in that case. Source width/height are passed to Starfish, with a centered aspect-preserving ACB window inside the selected canvas. Portrait input is allowed within the same long-edge and pixel-area budget. The 1080p profile increases the video packet/source-buffer ceiling from 1 to 2 MiB and the shared queue from 4 to 8 MiB; the 512-packet limit remains. The media pipeline, H.264 codec and 30 FPS setting are otherwise unchanged.
+
+### LG B7 manual comparison
+
+1. Keep the previously working development IPK and its SHA-256. Download the new CI artifact, verify `SHA256SUMS` and `ELF_REPORT.txt`, then install it manually with webOS Dev Manager. CI does not contact the TV.
+2. Start at **720p / 30 FPS**. Reconnect the sender, mirror a static photo, advance through photos, and play two minutes of video with stereo audio. Confirm Magic Remote navigation, pairing, overlay, and diagnostics still work. Record `Advertised 1280 x 720` and actual SPS dimensions, FPS, drops, retries and RSS.
+3. Disconnect the sender. Select **1080p / 30 FPS** using OK or Right. Verify the UI requests reconnection, exit and relaunch the app, and confirm the selection persisted. Reconnect the same sender and capture its reported geometry, actual SPS width/height and the Starfish Load log. A displayed 1920×1080 canvas with a 1280×720 SPS is **not** a successful native 1080p test.
+4. Mirror landscape and portrait content, then repeat the photo transitions and two-minute video/audio playback. Compare input/PTS/feed FPS, queue occupancy, drops, feed retries, decoder errors, memory and visual stability against step 2. Confirm the picture is not stretched or clipped. If no 1920×1080 or 1080×1920 SPS arrives, record the sender model and log excerpt as a negotiation result, not as a B7 decoder failure.
+5. Disconnect and select **720p / 30 FPS**, then reconnect. If 1080p cannot initialize, confirm automatic 720p recovery and a clear status message. If the app cannot launch, restore the saved previous development IPK in webOS Dev Manager. Do not uninstall the production app or erase private state.
+
+60 FPS, 4K, HEVC, HDR and direct-media streaming remain gated. The new 1080p path is **unverified on the LG B7** until these hardware checks are completed.

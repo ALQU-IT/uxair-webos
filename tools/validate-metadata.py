@@ -27,7 +27,7 @@ def main():
     changelog = (ROOT / 'CHANGELOG.md').read_text()
     if f'## [{version}]' not in changelog:
         fail('CHANGELOG does not contain the current version')
-    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md']:
+    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md']:
         if not (ROOT / path).is_file():
             fail(f'missing required documentation: {path}')
     tracked_sources = list((ROOT / 'src').glob('*.cpp'))

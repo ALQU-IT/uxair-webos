@@ -2,6 +2,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build/tests
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/diagnostics_test.cpp -o build/tests/diagnostics-test
+build/tests/diagnostics-test
+echo 'PASS: incoming video timing windows, timestamp discontinuities and reset'
+if [[ "${1:-}" == "--diagnostics-only" ]]; then
+  exit 0
+fi
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=1280x720 -frames:v 1 -c:v libx264 -profile:v baseline -f h264 build/tests/landscape.h264
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=720x1280 -frames:v 1 -c:v libx264 -profile:v high -f h264 build/tests/portrait.h264
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i sine=sample_rate=44100 -t 1 -ac 2 -c:a aac -f adts build/tests/audio.aac
@@ -20,6 +26,3 @@ c++ -std=c++11 -g -fsanitize=address,undefined -Isrc $ffmpeg_cflags \
   tests/media_test.cpp src/h264.cpp src/audio.cpp \
   $ffmpeg_libs -o build/tests/media-test
 build/tests/media-test build/tests/landscape.h264 build/tests/portrait.h264 build/tests/audio.aac
-c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/diagnostics_test.cpp -o build/tests/diagnostics-test
-build/tests/diagnostics-test
-echo 'PASS: incoming video timing windows, timestamp discontinuities and reset'

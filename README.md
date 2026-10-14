@@ -4,7 +4,7 @@ An experimental native AirPlay mirroring receiver for rooted LG webOS TVs. Open 
 
 ## Status and validated hardware
 
-This is an experimental `0.1.0` release. It has been validated on an LG **32LJ600B-SA**, firmware **06.10.60**, Rockhopper **3.9.3**, with an ARMv7 Cortex-A9 target. The proven target is H.264 at up to 1280×720 / 30 fps with stereo audio. See [the validation record](docs/VALIDATION.md) for evidence, unverified scenarios, and the repeatable manual acceptance procedure.
+This is an experimental `0.1.0` release. It has been validated on an LG **32LJ600B-SA**, firmware **06.10.60**, Rockhopper **3.9.3**, with an ARMv7 Cortex-A9 target. A development build has also been tested on an LG OLED B7 / Rockhopper 3.9.0 with mirroring, photos, video and stereo audio. The proven mirroring profile is H.264 at 1280×720 / 30 fps. See [the validation record](docs/VALIDATION.md), [B7 pacing record](docs/MILESTONE2.md), and [capability assessment](docs/CAPABILITIES.md).
 
 ## Requirements
 
@@ -30,6 +30,7 @@ On the TV, open **UxPlay webOS**. Start Screen Mirroring from an iPhone, iPad, o
 - Left/Right before connecting changes audio delay in 25 ms steps (−1000 to +1000 ms); positive values play audio later. The value is saved locally.
 - Back during a session disconnects and returns to the waiting screen. Back while waiting, or Exit, closes the app.
 - One transmitting device is accepted at a time.
+- The development app has a local TV settings, usage statistics and diagnostics interface. See [Milestone 3 phase-one controls and validation](docs/MILESTONE3.md). Higher resolutions and HDR are not enabled in this phase.
 
 For direct SSH helpers, explicitly set the connection details—no personal network, TV alias, or key path is embedded:
 
@@ -73,9 +74,9 @@ Diagnostics are written to `uxplay.log`, rotated around 1 MiB with one previous 
 
 ## Supported features and limitations
 
-Supported: AirPlay discovery, PIN pairing, H.264 mirroring, stereo audio, iPad rotation, reconnecting, and adjustable audio delay.
+Supported: AirPlay discovery, PIN pairing, H.264 mirroring, stereo audio with mirroring, iPad rotation, reconnecting, and adjustable audio delay.
 
-Not supported or not certified: DRM/HLS playback, HEVC/HDR, recording, startup at boot, broad TV/firmware compatibility, Mac extended display, and low-latency gaming. Starfish buffering on this older platform can add visible latency.
+Not supported or not certified: standalone audio-only playback, direct photo/video and HLS playback, full AirPlay 2, HEVC/4K/HDR, recording, startup at boot, broad TV/firmware compatibility, Mac extended display, and low-latency gaming. Starfish buffering on this older platform can add visible latency.
 
 ## Troubleshooting
 

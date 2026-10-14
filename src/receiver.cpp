@@ -1,6 +1,7 @@
 #include "receiver.h"
 #include "shell.h"
 #include "identity.h"
+#include "capabilities.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -33,6 +34,14 @@ ReceiverDiagnostics Receiver::diagnostics() {
     d.audio_queue_residence=audio_queue_residence.take_window();
     return d;
 }
+ReceiverDiagnostics Receiver::queue_snapshot() {
+    std::lock_guard<std::mutex> l(mutex);
+    ReceiverDiagnostics d;
+    d.queue_packets=packets.size(); d.queue_bytes=bytes;
+    d.video_queue_packets=video_packets; d.video_queue_bytes=video_bytes;
+    d.dropped_packets=dropped_packets; d.dropped_video_frames=dropped_video_frames;
+    return d;
+}
 VideoTimingSample Receiver::take_video_timing() {
     std::lock_guard<std::mutex> l(mutex);
     return video_timing.take_window();
@@ -41,9 +50,10 @@ void Receiver::enqueue(bool video,unsigned codec,uint64_t time,const uint8_t *da
     if (!data || size<=0 || size>1048576 || !time) return;
     const int64_t arrival=now_ns();
     activity=arrival;
-    if(video)last_video_arrival=arrival;
+    if(video) {last_video_arrival=arrival;++total_video_arrivals;}
     if(!video) {
         last_audio_arrival=arrival;
+        last_audio_codec=codec;
         int64_t offset=int64_t(audio_delay_ms.load())*1000000;
         if(offset<0 && time<uint64_t(-offset))return;
         time=offset>=0?time+uint64_t(offset):time-uint64_t(-offset);
@@ -92,7 +102,8 @@ static bool valid_key(const char *p) {
     if(!p || strlen(p)!=44) return false;
     return strspn(p,"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")==44;
 }
-bool Receiver::start(const std::string& dir) {
+bool Receiver::start(const std::string& dir, const Settings& settings) {
+    const AdvertisedCapabilities capabilities=advertised_capabilities(settings);
     directory=dir; mkdir(directory.c_str(),0700);
     std::ifstream settings(directory+"/audio-delay-ms");int delay;
     if(settings>>delay)audio_delay_ms=std::max(-1000,std::min(1000,delay));
@@ -112,8 +123,8 @@ bool Receiver::start(const std::string& dir) {
     int err=0;
     dnssd=dnssd_init(UXPLAY_DISPLAY_NAME,strlen(UXPLAY_DISPLAY_NAME),reinterpret_cast<char *>(mac),6,1,&err);
     if(!dnssd || err) { show("AirPlay discovery failed");return false; }
-    dnssd_set_airplay_features(dnssd,0,0);dnssd_set_airplay_features(dnssd,4,0);
-    dnssd_set_airplay_features(dnssd,42,0);dnssd_set_airplay_features(dnssd,27,1);
+    dnssd_set_airplay_features(dnssd,0,int(capabilities.direct_video));dnssd_set_airplay_features(dnssd,4,int(capabilities.hls));
+    dnssd_set_airplay_features(dnssd,42,int(capabilities.hevc));dnssd_set_airplay_features(dnssd,27,int(capabilities.legacy_pairing));
     raop_callbacks_t cb={};cb.cls=this;
     cb.audio_process=[](void *p,raop_ntp_t *,audio_decode_struct *d){self(p).enqueue(false,d->ct,d->ntp_time_remote,d->data,d->data_len);};
     cb.video_process=[](void *p,raop_ntp_t *,video_decode_struct *d){if(!d->is_h265)self(p).enqueue(true,0,d->ntp_time_remote,d->data,d->data_len);};
@@ -159,8 +170,8 @@ bool Receiver::start(const std::string& dir) {
     raop=raop_init(&cb);if(!raop) return false;
     raop_set_log_callback(raop,log_message,this);raop_set_log_level(raop,LOGGER_INFO);
     if(raop_init2(raop,0,device_id,(directory+"/server.key").c_str()))return false;
-    raop_set_plist(raop,"width",1280);raop_set_plist(raop,"height",720);
-    raop_set_plist(raop,"refreshRate",30);raop_set_plist(raop,"maxFPS",30);raop_set_plist(raop,"pin",0);
+    raop_set_plist(raop,"width",capabilities.width);raop_set_plist(raop,"height",capabilities.height);
+    raop_set_plist(raop,"refreshRate",capabilities.max_fps);raop_set_plist(raop,"maxFPS",capabilities.max_fps);raop_set_plist(raop,"pin",0);
     raop_set_dnssd(raop,dnssd);
     unsigned short udp[3]={0,0,0},tcp[2]={0,0},port=0;
     raop_set_udp_ports(raop,udp);raop_set_tcp_ports(raop,tcp);

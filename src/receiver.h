@@ -7,6 +7,7 @@
 #include <vector>
 #include "raop.h"
 #include "diagnostics.h"
+#include "settings.h"
 struct Packet {
     bool video;
     unsigned codec;
@@ -25,13 +26,14 @@ struct ReceiverDiagnostics {
 };
 struct Receiver {
     ~Receiver();
-    bool start(const std::string& directory);
+    bool start(const std::string& directory, const Settings& settings);
     void stop();
     void disconnect();
     bool pop(Packet& packet, uint64_t latest = UINT64_MAX);
     void enqueue(bool video, unsigned codec, uint64_t time, const uint8_t *data, int size);
     void clear();
     ReceiverDiagnostics diagnostics();
+    ReceiverDiagnostics queue_snapshot();
     VideoTimingSample take_video_timing();
     std::string status();
     void show(const std::string& text);
@@ -44,6 +46,8 @@ struct Receiver {
     std::atomic<int64_t> activity{0};
     std::atomic<int64_t> last_audio_arrival{0};
     std::atomic<int64_t> last_video_arrival{0};
+    std::atomic<uint64_t> total_video_arrivals{0};
+    std::atomic<unsigned> last_audio_codec{0};
     std::atomic<unsigned> overflow{0};
     std::atomic<unsigned> session_resets{0};
     raop_t *raop = nullptr;

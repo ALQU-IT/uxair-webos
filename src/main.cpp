@@ -4,11 +4,16 @@
 #include "receiver.h"
 #include "shell.h"
 #include "identity.h"
+#include "settings.h"
+#include "usage_stats.h"
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
 #include <fstream>
+#include <ctime>
+#include <sstream>
 #include <string>
+#include <vector>
 #include <sys/stat.h>
 
 static long process_rss_kb() {
@@ -22,18 +27,52 @@ static long process_rss_kb() {
     return -1;
 }
 
+static std::string fmt(const char *format,double value) {
+    char text[80];snprintf(text,sizeof(text),format,value);return text;
+}
+static std::string duration_text(uint64_t milliseconds) {
+    uint64_t seconds=milliseconds/1000;
+    char text[80];
+    if(seconds<3600)snprintf(text,sizeof(text),"%llum %02llus",(unsigned long long)(seconds/60),(unsigned long long)(seconds%60));
+    else snprintf(text,sizeof(text),"%lluh %02llum",(unsigned long long)(seconds/3600),(unsigned long long)((seconds/60)%60));
+    return text;
+}
+static const char *audio_codec_name(unsigned code) {
+    switch(code) {case 1:return "PCM";case 2:return "ALAC";case 4:return "AAC-LC";case 8:return "AAC-ELD";default:return "Unknown";}
+}
+static std::string utc_text(uint64_t epoch) {
+    if(!epoch)return "Never";
+    time_t stamp=time_t(epoch);tm value;
+    if(!gmtime_r(&stamp,&value))return "Unknown";
+    char text[48];strftime(text,sizeof(text),"%Y-%m-%d %H:%M UTC",&value);return text;
+}
+
 int main() {
     umask(0077);start_log("uxplay.log");
     Shell shell;if(!shell.open())return 1;
     shell.screen("Starting AirPlay receiver","");
+    const std::string state_dir=app_directory()+"/state";
+    Settings settings;
+    if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d hdr=%s diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.hdr==HdrPolicy::Sdr?"SDR":"Auto (SDR fallback)",diagnostics_mode_name(settings.diagnostics));
+    UsageStats usage;
+    load_usage_stats(state_dir+"/usage-v1",usage);
     Receiver receiver;
-    if(!receiver.start(app_directory()+"/state")) {
+    if(!receiver.start(state_dir,settings)) {
         shell.screen("Could not start. See uxplay.log","");
         while(shell.pump())SDL_Delay(50);
         return 1;
     }
     const char *app_id=getenv("APPID");if(!app_id)app_id=UXPLAY_APP_ID;
     Media media;AudioDecoder decoder;
+    UiPage page=UiPage::Home;
+    int focus=0;
+    bool reset_armed=false, session_success=false;
+    uint64_t session_started_utc=0, ingress_at_start=0, drops_at_start=0,video_drops_at_start=0,hardware_decoder_errors=0;
+    int observed_width=0,observed_height=0;
+    double live_incoming_fps=0,live_feed_fps=0,live_pts_fps=0,live_queue_ms=0,live_feed_ms=0;
+    uint64_t live_ingress_last=0,live_feed_last=0;
+    ReceiverDiagnostics live_queue;
+    long live_rss_kb=-1;
     bool opened=false,have_pending=false,last_paused=false,audio_started=false;
     int width=1280,height=720;
     Packet pending;
@@ -41,7 +80,7 @@ int main() {
     uint64_t origin=0;
     int64_t audio_end=0;
     std::vector<uint8_t> silence(441*4,0);
-    int64_t start=0,last_ui=0,last_stats=now_ns(),stall=0,session_started=0,app_started=last_stats;
+    int64_t start=0,last_ui=0,last_stats=now_ns(),last_live=last_stats,stall=0,session_started=0,app_started=last_stats;
     unsigned video_count=0,audio_count=0,decode_errors=0,late_audio=0,silence_blocks=0,invalid_video=0;
     unsigned sessions_started=0,sessions_ended=0,last_decoder_events=0;
     uint64_t last_feed_video=0,last_feed_audio=0,last_feed_video_retries=0,last_feed_audio_retries=0;
@@ -50,15 +89,96 @@ int main() {
     DurationWindow video_parse_time, video_schedule_late, video_pending_time;
     DurationWindow video_feed_time, audio_feed_time, media_tick_time, loop_gap_time;
     int64_t previous_loop=0;
-    auto finish=[&](){
+    auto finish=[&](bool error=false){
+        if(opened && media.playing && video_count)session_success=true;
+        if(error && !opened) {++usage.session_errors;save_usage_stats(state_dir+"/usage-v1",usage);}
         if(opened) {
             ++sessions_ended;
             fprintf(stderr,"[session] ended duration_s=%.1f started=%u ended=%u\n",session_started?(now_ns()-session_started)/1e9:0.0,sessions_started,sessions_ended);
+            if(session_success) {
+                SessionSummary summary;
+                summary.started_utc=session_started_utc;
+                summary.duration_ms=uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000;
+                summary.kind=SessionKind::Mirror;
+                summary.width=unsigned(observed_width);summary.height=unsigned(observed_height);summary.codec=1;
+                summary.incoming_frames=receiver.total_video_arrivals.load()-ingress_at_start;
+                summary.feed_frames=video_count;
+                ReceiverDiagnostics final_queue=receiver.queue_snapshot();
+                summary.packet_drops=final_queue.dropped_packets-drops_at_start;
+                summary.video_frame_drops=final_queue.dropped_video_frames-video_drops_at_start;
+                summary.decoder_errors=decode_errors+hardware_decoder_errors;
+                summary.session_errors=error?1:0;
+                usage.record(summary);
+            } else if(error) {
+                ++usage.session_errors;
+                usage.decoder_errors+=decode_errors+hardware_decoder_errors;
+                ReceiverDiagnostics final_queue=receiver.queue_snapshot();
+                usage.packet_drops+=final_queue.dropped_packets-drops_at_start;
+                usage.video_frame_drops+=final_queue.dropped_video_frames-video_drops_at_start;
+            }
+            if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] could not save usage history\n");
         }
         media.close();decoder.reset();receiver.disconnect();opened=false;have_pending=false;
         origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;
+        session_success=false;session_started_utc=0;observed_width=observed_height=0;hardware_decoder_errors=0;
+        if(page!=UiPage::Home)page=UiPage::Home;
+        focus=0;reset_armed=false;
         video_feed_timing.reset();video_parse_time.reset();video_schedule_late.reset();video_pending_time.reset();
         video_feed_time.reset();audio_feed_time.reset();media_tick_time.reset();
+    };
+    auto rows_for=[&](UiPage which)->std::vector<UiRow> {
+        std::vector<UiRow> rows;
+        if(which==UiPage::Home) {
+            rows.push_back(UiRow("Quality settings","Open","720p / 30 FPS is the active profile"));
+            rows.push_back(UiRow("Usage statistics","Open","Local playback history only"));
+            rows.push_back(UiRow("Live diagnostics","Open","Incoming and feed rates; displayed FPS unavailable"));
+            rows.push_back(UiRow("Capabilities","Open","Protocol, 4K, HDR and direct-media status"));
+            rows.push_back(UiRow("Audio delay",std::to_string(receiver.audio_delay_ms.load())+" ms","Left / Right adjusts before playback"));
+        } else if(which==UiPage::Settings) {
+            rows.push_back(UiRow("Screen mirroring","720p","1280 x 720 advertised; source aspect ratio retained"));
+            rows.push_back(UiRow("1080p","Locked","Needs B7 negotiation and decoder validation",false));
+            rows.push_back(UiRow("4K","Unavailable","HEVC and 4K buffers are not implemented",false));
+            rows.push_back(UiRow("Frame rate","30 FPS","Sender maximum; actual input shown in diagnostics"));
+            rows.push_back(UiRow("60 FPS","Locked","Needs separate sender and B7 tests",false));
+            rows.push_back(UiRow("HDR policy",settings.hdr==HdrPolicy::Auto?"Auto":"SDR","Auto currently uses SDR; no verified HDR path"));
+            rows.push_back(UiRow("Stats overlay",diagnostics_mode_name(settings.diagnostics),"SDL layer above hardware video is unverified"));
+        } else if(which==UiPage::Statistics) {
+            rows.push_back(UiRow("Total playback",duration_text(usage.playback_ms),"Counted after Starfish begins playing"));
+            rows.push_back(UiRow("Successful sessions",std::to_string(usage.successful_sessions),"Mirror "+std::to_string(usage.mirror_sessions)+"  Audio "+std::to_string(usage.audio_sessions)+"  Direct "+std::to_string(usage.direct_sessions)));
+            rows.push_back(UiRow("Last session",usage.recent.empty()?"Never":utc_text(usage.recent.front().started_utc),usage.recent.empty()?"No completed session":duration_text(usage.recent.front().duration_ms)+"  H.264 "+std::to_string(usage.recent.front().width)+"x"+std::to_string(usage.recent.front().height)));
+            rows.push_back(UiRow("Recent sessions","Open",std::to_string(usage.recent.size())+" local summaries retained"));
+            double hours=usage.playback_ms/3600000.0;
+            rows.push_back(UiRow("Lifetime input / feed",hours>0?fmt("%.1f",usage.incoming_frames/(hours*3600))+" / "+fmt("%.1f",usage.feed_frames/(hours*3600))+" FPS":"No data","Averages include still-image periods; not displayed FPS"));
+            rows.push_back(UiRow("Frame / packet drops",std::to_string(usage.video_frame_drops)+" / "+std::to_string(usage.packet_drops),"Decode errors "+std::to_string(usage.decoder_errors)+"  Session errors "+std::to_string(usage.session_errors)));
+            rows.push_back(UiRow(reset_armed?"Press OK again to reset":"Reset usage history","Local only","Pairing and receiver identity are retained"));
+        } else if(which==UiPage::Diagnostics) {
+            std::string resolution=observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting SPS";
+            rows.push_back(UiRow("Incoming video",resolution,"H.264; bit depth and HDR metadata unavailable"));
+            rows.push_back(UiRow("Incoming / feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),"One-second callback and accepted-feed windows"));
+            rows.push_back(UiRow("Source PTS / display FPS",fmt("%.1f",live_pts_fps)+" / N/A","FRAMEREADY is throttled, not panel presentation"));
+            rows.push_back(UiRow("Video / audio queue",std::to_string(live_queue.video_queue_packets)+" / "+std::to_string(live_queue.queue_packets-live_queue.video_queue_packets),"Video queue residence "+fmt("%.1f",live_queue_ms)+" ms, last 5s"));
+            rows.push_back(UiRow("Starfish feed",fmt("%.1f",live_feed_ms)+" ms","Average video Feed call, last 5s; not decode latency"));
+            rows.push_back(UiRow("Audio",std::string(audio_codec_name(receiver.last_audio_codec.load()))+" -> PCM 44.1k","Stereo output; source sample rate not verified"));
+            rows.push_back(UiRow("Session / memory",session_started?duration_text(uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000):"Idle",live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB RSS":"RSS unavailable"));
+        } else if(which==UiPage::History) {
+            for(size_t i=0;i<usage.recent.size() && i<7;++i) {
+                const SessionSummary& s=usage.recent[i];
+                double seconds=s.duration_ms/1000.0;
+                rows.push_back(UiRow(utc_text(s.started_utc),duration_text(s.duration_ms),
+                    std::string(session_kind_name(s.kind))+" H.264 "+std::to_string(s.width)+"x"+std::to_string(s.height)+
+                    "  input/feed "+fmt("%.1f",seconds?s.incoming_frames/seconds:0)+"/"+fmt("%.1f",seconds?s.feed_frames/seconds:0)+" FPS"));
+            }
+            if(rows.empty())rows.push_back(UiRow("No completed sessions yet","","Playback history stays on this TV"));
+        } else {
+            rows.push_back(UiRow("Screen Mirroring","H.264 720p/30","Working on B7; legacy pairing path"));
+            rows.push_back(UiRow("AirPlay 2","Partial","Modern sender interop is not full AirPlay 2"));
+            rows.push_back(UiRow("Standalone audio","Unavailable","Audio currently plays with mirroring only",false));
+            rows.push_back(UiRow("Direct photos / video","Unavailable","Photos through mirroring work; HLS is off",false));
+            rows.push_back(UiRow("1080p / 60 FPS","Untested","Experimental gates remain closed",false));
+            rows.push_back(UiRow("HEVC / 4K / HDR","Unavailable","No verified codec and color metadata path",false));
+            rows.push_back(UiRow("Presented FPS","Unavailable","TV callback is throttled, not frame presentation",false));
+        }
+        return rows;
     };
     bool running=true;
     while(running) {
@@ -68,15 +188,43 @@ int main() {
         Action action=shell.action();
         if(action==Action::Exit)break;
         if(action==Action::Back) {
-            if(opened||receiver.mirror||!receiver.pin().empty())finish();else break;
+            if(page!=UiPage::Home) {page=page==UiPage::History?UiPage::Statistics:UiPage::Home;focus=0;reset_armed=false;last_ui=0;if(opened)shell.transparent();}
+            else if(opened||receiver.mirror||!receiver.pin().empty())finish();else break;
         }
-        if(!opened&&(action==Action::Left||action==Action::Right)) {
+        if(action==Action::Up||action==Action::Down) {
+            int count=int(rows_for(page).size());
+            focus=(focus+(action==Action::Down?1:count-1))%count;
+            reset_armed=false;last_ui=0;
+        }
+        if(action==Action::Select) {
+            if(page==UiPage::Home) {
+                if(opened)page=UiPage::Diagnostics;
+                else if(focus==0)page=UiPage::Settings;
+                else if(focus==1)page=UiPage::Statistics;
+                else if(focus==2)page=UiPage::Diagnostics;
+                else if(focus==3)page=UiPage::Capabilities;
+                focus=0;last_ui=0;
+            } else if(page==UiPage::Statistics && focus==3) {
+                page=UiPage::History;focus=0;last_ui=0;
+            } else if(page==UiPage::Statistics && focus==6 && !opened) {
+                if(reset_armed) {usage.reset();if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] reset save failed\n");reset_armed=false;}
+                else reset_armed=true;
+                last_ui=0;
+            }
+        }
+        if(page==UiPage::Settings && !opened && (action==Action::Left||action==Action::Right||action==Action::Select)) {
+            bool changed=false;
+            if(focus==5) {settings.hdr=settings.hdr==HdrPolicy::Auto?HdrPolicy::Sdr:HdrPolicy::Auto;changed=true;}
+            if(focus==6) {int mode=int(settings.diagnostics);mode=(mode+(action==Action::Left?2:1))%3;settings.diagnostics=DiagnosticsMode(mode);changed=true;}
+            if(changed) {if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");last_ui=0;}
+        }
+        if(!opened&&page==UiPage::Home&&(action==Action::Left||action==Action::Right)) {
             receiver.adjust_audio_delay(action==Action::Right?25:-25);last_ui=0;
         }
-        if(receiver.reset.exchange(false))finish();
+        if(receiver.reset.exchange(false))finish(true);
         if(receiver.activity && now-receiver.activity>20000000000LL && (opened||receiver.mirror)) {
             fprintf(stderr,"[session] idle timeout\n");
-            finish();receiver.show("Connection lost. Connect again.");
+            finish(true);receiver.show("Connection lost. Connect again.");
         }
         if(receiver.audio_flush.exchange(false))decoder.reset();
         if(opened) {
@@ -85,7 +233,8 @@ int main() {
             media_tick_time.record(uint64_t(std::max<int64_t>(0,now_ns()-tick_begin)));
             bool paused=receiver.paused;
             if(paused!=last_paused) {media.pause(paused);last_paused=paused;}
-            if(media.failed) {finish();receiver.show("Playback error. Connect again.");}
+            if(media.failed) {++hardware_decoder_errors;finish(true);receiver.show("Playback error. Connect again.");}
+            if(opened && media.playing && video_count)session_success=true;
             // Some senders negotiate audio after mirroring starts. Prime the PCM
             // track only until the first real packet arrives. Filling later gaps
             // advances audio_end past delayed RTP packets and drops real audio.
@@ -97,8 +246,35 @@ int main() {
                 ++silence_blocks;
             }
         }
-        if(!opened && now-last_ui>200000000) {
-            shell.screen(receiver.status(),receiver.pin(),receiver.audio_delay_ms);last_ui=now;
+        if(!opened && now-last_ui>500000000) {
+            std::string subtitle=receiver.pin().empty()?receiver.status():"Pairing PIN: "+receiver.pin();
+            shell.page(page,subtitle,rows_for(page),focus,page==UiPage::Home?"Up/Down navigate  •  OK open  •  Left/Right audio delay  •  Back exit":"Up/Down navigate  •  OK select  •  Back home");
+            last_ui=now;
+        }
+        if(now-last_live>1000000000LL) {
+            double seconds=(now-last_live)/1e9;
+            uint64_t ingress=receiver.total_video_arrivals.load();
+            uint64_t feed=media.feed_video_accepted.load();
+            live_incoming_fps=(ingress-live_ingress_last)/seconds;
+            live_feed_fps=opened?(feed>=live_feed_last?feed-live_feed_last:feed)/seconds:0;
+            live_ingress_last=ingress;live_feed_last=feed;
+            live_queue=receiver.queue_snapshot();live_rss_kb=process_rss_kb();last_live=now;
+            if(opened) {
+                if(page!=UiPage::Home) {
+                    shell.page(page,"Live session  •  Press Back to return to playback",rows_for(page),focus,"Incoming and Feed are receiver rates  •  Displayed FPS unavailable");
+                } else if(settings.diagnostics!=DiagnosticsMode::Off) {
+                    std::vector<std::string> lines;
+                    lines.push_back(std::string("H.264 ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"resolution pending")+"  HDR unavailable");
+                    lines.push_back("Incoming "+fmt("%.1f",live_incoming_fps)+"  Feed "+fmt("%.1f",live_feed_fps)+" FPS  Displayed N/A");
+                    lines.push_back("Video queue "+std::to_string(live_queue.video_queue_packets)+"  Drops "+std::to_string(live_queue.dropped_video_frames));
+                    if(settings.diagnostics==DiagnosticsMode::Detailed) {
+                        lines.push_back("PTS "+fmt("%.1f",live_pts_fps)+" FPS  Queue "+fmt("%.1f",live_queue_ms)+" ms  Feed "+fmt("%.1f",live_feed_ms)+" ms");
+                        lines.push_back(std::string("Audio ")+audio_codec_name(receiver.last_audio_codec.load())+" -> PCM stereo 44.1k");
+                        lines.push_back("RSS "+(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB":"N/A")+"  Session "+duration_text(uint64_t(std::max<int64_t>(0,now-session_started))/1000000));
+                    }
+                    shell.overlay(lines);
+                }
+            }
         }
         if(now-last_stats>5000000000LL) {
             double window_s=(now-last_stats)/1e9;
@@ -112,6 +288,8 @@ int main() {
             unsigned event_delta=frame_events-last_decoder_events;
             double incoming_fps=timing.frames/window_s;
             double pts_fps=timing.interval_total_ns?timing.intervals*1e9/timing.interval_total_ns:0;
+            live_pts_fps=pts_fps;
+            live_queue_ms=q.video_queue_residence.average_ms();live_feed_ms=video_feed.average_ms();
             double avg_frame_ms=timing.intervals?timing.interval_total_ns/double(timing.intervals)/1e6:0;
             if(opened) fprintf(stderr,"[video] incoming_fps=%.2f pts_fps=%.2f frame_ms_avg=%.2f min=%.2f max=%.2f feed_fps=%.2f decoder_events_s=%.2f invalid=%u queue_dropped_frames=%llu\n",
                 incoming_fps,pts_fps,avg_frame_ms,timing.interval_min_ns/1e6,timing.interval_max_ns/1e6,
@@ -168,17 +346,28 @@ int main() {
             video_parse_time.record(uint64_t(std::max<int64_t>(0,now_ns()-parse_begin)));
             if(!info.valid){++invalid_video;have_pending=false;continue;}
             if(!info.configuration.empty())configuration=info.configuration;
-            if(info.width) {width=info.width;height=info.height;}
+            if(info.width) {
+                if(!input_fits_mirror_profile(settings,info.width,info.height)) {
+                    fprintf(stderr,"[video] sender resolution %dx%d exceeds selected profile %dx%d\n",info.width,info.height,settings.width,settings.height);
+                    finish(true);receiver.show("Sender resolution exceeds 720p profile");continue;
+                }
+                width=observed_width=info.width;height=observed_height=info.height;
+            }
             if(!info.keyframe||configuration.empty()) {have_pending=false;continue;}
             int64_t open_begin=now_ns();
             bool media_opened=media.open(app_id,width,height,true);
             fprintf(stderr,"[media-init] open_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
             if(!media_opened) {
-                finish();receiver.show("Could not open the TV decoder.");continue;
+                finish(true);receiver.show("Could not open the TV decoder.");continue;
             }
             // The pre-roll starts after synchronous decoder initialization.
             // Reusing the loop's old `now` would silently consume it in Load().
             opened=true;origin=pending.timestamp;session_started=now_ns();start=session_started+200000000;stall=0;++sessions_started;
+            session_started_utc=uint64_t(std::time(nullptr));session_success=false;
+            ingress_at_start=receiver.total_video_arrivals.load();if(ingress_at_start)--ingress_at_start;
+            ReceiverDiagnostics initial_queue=receiver.queue_snapshot();
+            drops_at_start=initial_queue.dropped_packets;video_drops_at_start=initial_queue.dropped_video_frames;
+            live_feed_last=0;
             video_count=audio_count=decode_errors=late_audio=silence_blocks=invalid_video=0;
             audio_decode_calls=audio_decode_ns=audio_decode_max_ns=0;
             last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
@@ -188,22 +377,30 @@ int main() {
         int64_t pts=pending.timestamp>=origin ? int64_t(pending.timestamp-origin) : -int64_t(origin-pending.timestamp);
         if(pts<0){have_pending=false;continue;}
         // Large clock discontinuities require a fresh AirPlay session, not an unbounded queue.
-        if(pts>now-start+5000000000LL) {fprintf(stderr,"[session] timestamp discontinuity\n");finish();receiver.show("Device clock changed. Connect again.");continue;}
+        if(pts>now-start+5000000000LL) {fprintf(stderr,"[session] timestamp discontinuity\n");finish(true);receiver.show("Device clock changed. Connect again.");continue;}
         if(now<start+pts) {SDL_Delay(2);continue;}
         if(pending.video && pending.codec==0) {
             int64_t parse_begin=now_ns();
             auto info=inspect_h264(pending.data.data(),pending.data.size());
             video_parse_time.record(uint64_t(std::max<int64_t>(0,now_ns()-parse_begin)));
             if(!info.valid){++invalid_video;have_pending=false;continue;}
+            if(info.width) {
+                if(!input_fits_mirror_profile(settings,info.width,info.height)) {
+                    fprintf(stderr,"[video] sender resolution %dx%d exceeds selected profile %dx%d\n",info.width,info.height,settings.width,settings.height);
+                    finish(true);receiver.show("Sender resolution exceeds 720p profile");continue;
+                }
+                observed_width=info.width;observed_height=info.height;
+            }
             if(!info.configuration.empty())configuration=info.configuration;
             if(info.width && (width!=info.width||height!=info.height)) {
                 media.close();width=info.width;height=info.height;
                 int64_t open_begin=now_ns();
                 bool media_opened=info.keyframe && media.open(app_id,width,height,true);
                 fprintf(stderr,"[media-init] reopen_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
-                if(!media_opened) {finish();continue;}
+                if(!media_opened) {finish(true);continue;}
                 origin=pending.timestamp;start=now_ns();pts=0;audio_end=0;audio_started=false;decoder.reset();
                 video_feed_timing.reset();
+                live_feed_last=0;
                 last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
                 fprintf(stderr,"[session] geometry=%dx%d\n",width,height);
             }
@@ -249,10 +446,11 @@ int main() {
             have_pending=false;stall=0;
         } else if(result==FeedResult::Retry) {
             if(!stall)stall=now;
-            if(now-stall>3000000000LL){finish();receiver.show("Playback stopped. Connect again.");}
+            if(now-stall>3000000000LL){finish(true);receiver.show("Playback stopped. Connect again.");}
             SDL_Delay(5);
-        } else {finish();receiver.show("Stream failure. Connect again.");}
+        } else {finish(true);receiver.show("Stream failure. Connect again.");}
     }
+    if(opened)finish();
     receiver.stop();media.close();
     fprintf(stderr,"[app] stopped cleanly\n");
     return 0;

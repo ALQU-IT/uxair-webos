@@ -32,7 +32,7 @@ if(BUILD_RECEIVER)
     target_compile_definitions(airplay PRIVATE PLIST_210 PLIST_230 OPENSSL_API_COMPAT=0x10101000L _REENTRANT _LARGEFILE64_SOURCE _FILE_OFFSET_BITS=64)
     target_include_directories(airplay PUBLIC "${UX}/lib" PRIVATE "${UX}/lib/llhttp" "${UX}/lib/playfair" "${DEPS}/include")
     target_link_libraries(airplay PUBLIC playfair dnssd llhttp "${DEPS}/lib/libplist-2.0.a" "${DEPS}/lib/libcrypto.a" pthread dl m)
-    add_executable(uxplay-webos src/main.cpp src/receiver.cpp src/audio.cpp src/h264.cpp)
+    add_executable(uxplay-webos src/main.cpp src/receiver.cpp src/audio.cpp src/h264.cpp src/settings.cpp src/usage_stats.cpp)
     target_include_directories(uxplay-webos PRIVATE "${DEPS}/include")
     target_link_libraries(uxplay-webos PRIVATE lg_media airplay "${DEPS}/lib/libavcodec.a" "${DEPS}/lib/libswresample.a" "${DEPS}/lib/libavutil.a")
     # LG's player loads its own older OpenSSL/FFmpeg indirectly. Keep private

@@ -9,6 +9,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <algorithm>
 static std::string log_path;
 static volatile sig_atomic_t interrupted = 0;
 static void signal_stop(int) { interrupted = 1; }
@@ -51,7 +52,8 @@ bool Shell::open() {
     if(TTF_Init()!=0) return false;
     font_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",30);
     large_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",76);
-    if(!font_||!large_) {fprintf(stderr,"[font] %s\n",TTF_GetError());return false;}
+    small_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",23);
+    if(!font_||!large_||!small_) {fprintf(stderr,"[font] %s\n",TTF_GetError());return false;}
     return true;
 }
 void Shell::transparent() {
@@ -65,6 +67,9 @@ Action Shell::action() {
         if (e.type == SDL_KEYDOWN) {
             if(e.key.keysym.scancode==SDL_SCANCODE_LEFT)return Action::Left;
             if(e.key.keysym.scancode==SDL_SCANCODE_RIGHT)return Action::Right;
+            if(e.key.keysym.scancode==SDL_SCANCODE_UP)return Action::Up;
+            if(e.key.keysym.scancode==SDL_SCANCODE_DOWN)return Action::Down;
+            if(e.key.keysym.scancode==SDL_SCANCODE_RETURN || e.key.keysym.scancode==SDL_SCANCODE_KP_ENTER)return Action::Select;
             if(e.key.keysym.scancode==SDL_WEBOS_SCANCODE_EXIT) return Action::Exit;
             if(e.key.keysym.scancode==SDL_WEBOS_SCANCODE_BACK || e.key.keysym.scancode==SDL_SCANCODE_ESCAPE || e.key.keysym.scancode==SDL_SCANCODE_AC_BACK) return Action::Back;
         }
@@ -81,6 +86,55 @@ void Shell::text(const std::string& s,int y,TTF_Font *font,SDL_Color color) {
     if(texture) {SDL_RenderCopy(renderer,texture,nullptr,&rect);SDL_DestroyTexture(texture);}
     SDL_FreeSurface(surface);
 }
+void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *font,SDL_Color color) {
+    SDL_Surface *surface=TTF_RenderUTF8_Blended(font,s.c_str(),color);if(!surface)return;
+    SDL_Texture *texture=SDL_CreateTextureFromSurface(renderer,surface);
+    int width=std::min(surface->w,max_width);
+    SDL_Rect rect={x,y,width,surface->h};
+    if(texture) { SDL_RenderCopy(renderer,texture,nullptr,&rect); SDL_DestroyTexture(texture); }
+    SDL_FreeSurface(surface);
+}
+void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer) {
+    int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer,10,17,28,255);SDL_RenderClear(renderer);
+    SDL_Rect band={0,0,w,std::max(8,h/10)};
+    SDL_SetRenderDrawColor(renderer,17,35,49,255);SDL_RenderFillRect(renderer,&band);
+    const char *titles[]={"UxPlay webOS Dev","Quality settings","Usage statistics","Live diagnostics","Capabilities","Recent sessions"};
+    int index=int(page_id);if(index<0||index>5)index=0;
+    text_at(titles[index],w/16,h/28,w*7/8,large_,{80,219,180,255});
+    text_at(subtitle,w/16,h/7,w*7/8,font_,{210,226,235,255});
+    const int top=h/4;
+    const int row_height=std::max(68,h/12);
+    for(size_t i=0;i<rows.size() && i<7;++i) {
+        int y=top+int(i)*row_height;
+        if(int(i)==selected) {
+            SDL_Rect focus={w/20,y-7,w*9/10,row_height-5};
+            SDL_SetRenderDrawColor(renderer,33,68,79,255);SDL_RenderFillRect(renderer,&focus);
+            SDL_Rect marker={w/20,y-7,7,row_height-5};
+            SDL_SetRenderDrawColor(renderer,80,219,180,255);SDL_RenderFillRect(renderer,&marker);
+        }
+        const SDL_Color primary=rows[i].enabled?SDL_Color{242,247,250,255}:SDL_Color{127,145,156,255};
+        text_at(rows[i].label,w/14,y,w*5/10,font_,primary);
+        if(!rows[i].value.empty())text_at(rows[i].value,w*2/3,y,w/4,font_,primary);
+        if(!rows[i].note.empty())text_at(rows[i].note,w/14,y+38,w*4/5,small_,{150,173,187,255});
+    }
+    text_at(footer,w/16,h-62,w*7/8,small_,{152,180,194,255});
+    SDL_RenderPresent(renderer);
+}
+void Shell::overlay(const std::vector<std::string>& lines) {
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer,0,0,0,0);SDL_RenderClear(renderer);
+    if(lines.empty())return;
+    int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
+    int x=w/30,y=h/25,box_w=std::min(w*3/5,950),box_h=34+int(lines.size())*38;
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer,8,18,28,208);
+    SDL_Rect box={x,y,box_w,box_h};SDL_RenderFillRect(renderer,&box);
+    for(size_t i=0;i<lines.size();++i)
+        text_at(lines[i],x+20,y+15+int(i)*38,box_w-40,small_,{239,249,246,255});
+    SDL_RenderPresent(renderer);
+}
 void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     SDL_SetRenderDrawColor(renderer,14,25,36,255);SDL_RenderClear(renderer);
     int w,h;SDL_GetRendererOutputSize(renderer,&w,&h);
@@ -93,4 +147,4 @@ void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     text("Same Wi-Fi network  ·  720p / 30 fps  ·  Back to exit",h-80,font_,{145,167,185,255});
     SDL_RenderPresent(renderer);
 }
-Shell::~Shell() {if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }
+Shell::~Shell() {if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }

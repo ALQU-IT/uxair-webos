@@ -35,4 +35,4 @@ The B7 log showed `gst_caps_get_structure: assertion 'GST_IS_CAPS (caps)' failed
 4. Record the sender and TV together with a high-frame-rate camera for at least one photo sequence and one moving clip. Count frame intervals at the panel; accepted `Feed` is not a displayed-frame timestamp.
 5. Verify discovery, PIN pairing/reconnect, mirroring, photos, video, stereo audio, and cleanup. If a regression appears, close the dev app and reinstall the saved known-good **development** IPK; the production app remains a separate rollback path.
 
-No Milestone 2 package has been run on the B7 yet. The instrumentation cannot by itself distinguish intentional still frames from sender-side stalls or quantify panel decode latency.
+The owner subsequently tested Milestone 2 on the B7 and reported stable functionality with minor video judder comparable to the original receiver. The instrumentation cannot by itself distinguish intentional still frames from sender-side stalls or quantify panel decode latency.

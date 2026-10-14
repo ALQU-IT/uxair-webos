@@ -20,3 +20,6 @@ c++ -std=c++11 -g -fsanitize=address,undefined -Isrc $ffmpeg_cflags \
   tests/media_test.cpp src/h264.cpp src/audio.cpp \
   $ffmpeg_libs -o build/tests/media-test
 build/tests/media-test build/tests/landscape.h264 build/tests/portrait.h264 build/tests/audio.aac
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/diagnostics_test.cpp -o build/tests/diagnostics-test
+build/tests/diagnostics-test
+echo 'PASS: incoming video timing windows, timestamp discontinuities and reset'

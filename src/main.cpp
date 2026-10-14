@@ -6,7 +6,20 @@
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
+#include <fstream>
+#include <string>
 #include <sys/stat.h>
+
+static long process_rss_kb() {
+    std::ifstream status("/proc/self/status");
+    std::string key, unit;
+    long value=0;
+    while(status>>key) {
+        if(key=="VmRSS:") { status>>value>>unit;return value; }
+        std::string rest;std::getline(status,rest);
+    }
+    return -1;
+}
 
 int main() {
     umask(0077);start_log("uxplay.log");
@@ -27,11 +40,18 @@ int main() {
     uint64_t origin=0;
     int64_t audio_end=0;
     std::vector<uint8_t> silence(441*4,0);
-    int64_t start=0,last_ui=0,last_stats=0,stall=0;
-    unsigned video_count=0,audio_count=0,decode_errors=0,late_audio=0,silence_blocks=0;
+    int64_t start=0,last_ui=0,last_stats=now_ns(),stall=0,session_started=0,app_started=last_stats;
+    unsigned video_count=0,audio_count=0,decode_errors=0,late_audio=0,silence_blocks=0,invalid_video=0;
+    unsigned sessions_started=0,sessions_ended=0,last_decoder_events=0;
+    uint64_t last_feed_video=0,last_feed_audio=0,last_feed_video_retries=0,last_feed_audio_retries=0;
+    uint64_t audio_decode_calls=0,audio_decode_ns=0,audio_decode_max_ns=0;
     auto finish=[&](){
+        if(opened) {
+            ++sessions_ended;
+            fprintf(stderr,"[session] ended duration_s=%.1f started=%u ended=%u\n",session_started?(now_ns()-session_started)/1e9:0.0,sessions_started,sessions_ended);
+        }
         media.close();decoder.reset();receiver.disconnect();opened=false;have_pending=false;
-        origin=0;start=0;stall=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;
+        origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;
     };
     bool running=true;
     while(running) {
@@ -70,7 +90,32 @@ int main() {
             shell.screen(receiver.status(),receiver.pin(),receiver.audio_delay_ms);last_ui=now;
         }
         if(now-last_stats>5000000000LL) {
-            if(opened)fprintf(stderr,"[stats] video=%u audio=%u frame_events=%u overflow=%u audio_errors=%u late_audio=%u silence=%u\n",video_count,audio_count,media.frames.load(),receiver.overflow.load(),decode_errors,late_audio,silence_blocks);
+            double window_s=(now-last_stats)/1e9;
+            VideoTimingSample timing=receiver.take_video_timing();
+            ReceiverDiagnostics q=receiver.diagnostics();
+            unsigned frame_events=media.frames.load();
+            unsigned event_delta=frame_events-last_decoder_events;
+            double incoming_fps=timing.frames/window_s;
+            double pts_fps=timing.interval_total_ns?timing.intervals*1e9/timing.interval_total_ns:0;
+            double avg_frame_ms=timing.intervals?timing.interval_total_ns/double(timing.intervals)/1e6:0;
+            if(opened) fprintf(stderr,"[video] incoming_fps=%.2f pts_fps=%.2f frame_ms_avg=%.2f min=%.2f max=%.2f feed_fps=%.2f decoder_events_s=%.2f invalid=%u queue_dropped_frames=%llu\n",
+                incoming_fps,pts_fps,avg_frame_ms,timing.interval_min_ns/1e6,timing.interval_max_ns/1e6,
+                (media.feed_video_accepted.load()-last_feed_video)/window_s,event_delta/window_s,invalid_video,(unsigned long long)q.dropped_video_frames);
+            if(opened) fprintf(stderr,"[pipeline] queue=%zu/512 packets bytes=%zu/4194304 (%.1f%%) peak=%zu packets/%zu bytes dropped_packets=%llu retries_video=%llu retries_audio=%llu feed_audio_fps=%.2f feed_avg_us=%.1f feed_max_us=%.1f\n",
+                q.queue_packets,q.queue_bytes,q.queue_bytes*100.0/4194304,q.peak_queue_packets,q.peak_queue_bytes,
+                (unsigned long long)q.dropped_packets,
+                (unsigned long long)(media.feed_video_retries.load()-last_feed_video_retries),
+                (unsigned long long)(media.feed_audio_retries.load()-last_feed_audio_retries),
+                (media.feed_audio_accepted.load()-last_feed_audio)/window_s,
+                media.feed_calls.load()?media.feed_time_ns.load()/double(media.feed_calls.load())/1000:0.0,media.feed_max_time_ns.load()/1000.0);
+            if(opened) fprintf(stderr,"[audio] sent=%u decode_errors=%u decode_avg_us=%.1f decode_max_us=%.1f late=%u silence=%u\n",
+                audio_count,decode_errors,audio_decode_calls?audio_decode_ns/double(audio_decode_calls)/1000:0.0,audio_decode_max_ns/1000.0,late_audio,silence_blocks);
+            fprintf(stderr,"[health] uptime_s=%.0f session_age_s=%.1f sessions_started=%u sessions_ended=%u reset_events=%u rss_kb=%ld\n",
+                (now-app_started)/1e9,session_started?(now-session_started)/1e9:0.0,sessions_started,sessions_ended,receiver.session_resets.load(),process_rss_kb());
+            last_decoder_events=frame_events;
+            last_feed_video=media.feed_video_accepted.load();last_feed_audio=media.feed_audio_accepted.load();
+            last_feed_video_retries=media.feed_video_retries.load();last_feed_audio_retries=media.feed_audio_retries.load();
+            audio_decode_calls=audio_decode_ns=audio_decode_max_ns=0;
             rotate_log();last_stats=now;
         }
         if(!have_pending) {
@@ -85,15 +130,17 @@ int main() {
             // discarded, then both streams share this frame's remote NTP origin.
             if(!pending.video) {have_pending=false;continue;}
             auto info=inspect_h264(pending.data.data(),pending.data.size());
-            if(!info.valid){have_pending=false;continue;}
+            if(!info.valid){++invalid_video;have_pending=false;continue;}
             if(!info.configuration.empty())configuration=info.configuration;
             if(info.width) {width=info.width;height=info.height;}
             if(!info.keyframe||configuration.empty()) {have_pending=false;continue;}
             if(!media.open(app_id,width,height,true)) {
                 finish();receiver.show("Could not open the TV decoder.");continue;
             }
-            opened=true;origin=pending.timestamp;start=now+200000000;stall=0;
-            video_count=audio_count=decode_errors=late_audio=silence_blocks=0;
+            opened=true;origin=pending.timestamp;start=now+200000000;stall=0;session_started=now;++sessions_started;
+            video_count=audio_count=decode_errors=late_audio=silence_blocks=invalid_video=0;
+            audio_decode_calls=audio_decode_ns=audio_decode_max_ns=0;
+            last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
             shell.transparent();
             fprintf(stderr,"[session] %dx%d audio=%d\n",width,height,int(receiver.has_audio));
         }
@@ -104,22 +151,26 @@ int main() {
         if(now<start+pts) {SDL_Delay(2);continue;}
         if(pending.video && pending.codec==0) {
             auto info=inspect_h264(pending.data.data(),pending.data.size());
-            if(!info.valid){have_pending=false;continue;}
+            if(!info.valid){++invalid_video;have_pending=false;continue;}
             if(!info.configuration.empty())configuration=info.configuration;
             if(info.width && (width!=info.width||height!=info.height)) {
                 media.close();width=info.width;height=info.height;
                 if(!info.keyframe || !media.open(app_id,width,height,true)) {finish();continue;}
                 origin=pending.timestamp;start=now;pts=0;audio_end=0;audio_started=false;decoder.reset();
+                last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
                 fprintf(stderr,"[session] geometry=%dx%d\n",width,height);
             }
             pending.codec=1; // Already parsed: do not repeat on decoder back-pressure.
         }
         if(!pending.video && pending.codec!=0) {
             std::vector<uint8_t> pcm;
+            int64_t decode_start=now_ns();
             if(!decoder.decode(pending.codec,pending.data.data(),pending.data.size(),pcm)) {
+                uint64_t elapsed=uint64_t(std::max<int64_t>(0,now_ns()-decode_start));++audio_decode_calls;audio_decode_ns+=elapsed;audio_decode_max_ns=std::max(audio_decode_max_ns,elapsed);
                 if(++decode_errors<=5)fprintf(stderr,"[audio] decode failure ct=%u\n",pending.codec);
                 have_pending=false;continue;
             }
+            uint64_t decode_elapsed=uint64_t(std::max<int64_t>(0,now_ns()-decode_start));++audio_decode_calls;audio_decode_ns+=decode_elapsed;audio_decode_max_ns=std::max(audio_decode_max_ns,decode_elapsed);
             pending.data.swap(pcm);pending.codec=0;
             float volume=receiver.volume;
             if(volume<1) {

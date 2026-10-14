@@ -61,6 +61,8 @@ The corresponding source archive is `dist/uxplay-webos-0.1.0-source.tar.gz`; it 
 
 Queues are capped at 4 MiB/512 packets. Decoder stalls, timestamp discontinuities, and queue overflow end the current session rather than allowing uncontrolled memory growth.
 
+Every five seconds, `uxplay.log` records lightweight diagnostics while a session is active: incoming H.264 access-unit FPS, FPS and interval spread derived from remote presentation timestamps, accepted Starfish feed rate, decoder callback rate, feed retries and call latency, queue occupancy/high-water marks and drops, audio decode time/errors, process RSS, and session/reset counts. The incoming rate is measured at packet ingress. `FRAMEREADY` is a throttled firmware callback, so its reported rate is an activity signal rather than a precise hardware FPS measurement. Queue limits and playback behavior are unchanged by diagnostics.
+
 ## Privacy, security, and logs
 
 Pairing data, receiver identity, and the selected audio delay are stored only in the app's private `state/` directory. Up to 64 paired client keys are retained. Reinstalling or removing app data resets that state. The receiver has no cloud service, analytics, or outbound account connection.

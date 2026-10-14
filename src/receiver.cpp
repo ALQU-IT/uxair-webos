@@ -16,6 +16,18 @@ static void log_message(void *,int level,const char *text) {
 void Receiver::show(const std::string& s) { std::lock_guard<std::mutex> l(mutex);message=s; }
 std::string Receiver::status() { std::lock_guard<std::mutex> l(mutex);return message; }
 std::string Receiver::pin() { std::lock_guard<std::mutex> l(mutex);return pin_text; }
+ReceiverDiagnostics Receiver::diagnostics() {
+    std::lock_guard<std::mutex> l(mutex);
+    ReceiverDiagnostics d;
+    d.queue_packets=packets.size();d.queue_bytes=bytes;
+    d.peak_queue_packets=peak_packets;d.peak_queue_bytes=peak_bytes;
+    d.dropped_packets=dropped_packets;d.dropped_video_frames=dropped_video_frames;
+    return d;
+}
+VideoTimingSample Receiver::take_video_timing() {
+    std::lock_guard<std::mutex> l(mutex);
+    return video_timing.take_window();
+}
 void Receiver::enqueue(bool video,unsigned codec,uint64_t time,const uint8_t *data,int size) {
     if (!data || size<=0 || size>1048576 || !time) return;
     activity=now_ns();
@@ -26,9 +38,13 @@ void Receiver::enqueue(bool video,unsigned codec,uint64_t time,const uint8_t *da
         time=offset>=0?time+uint64_t(offset):time-uint64_t(-offset);
     }
     std::lock_guard<std::mutex> l(mutex);
-    if (bytes+size>4*1024*1024 || packets.size()>=512) { ++overflow; reset=true; return; }
+    if(video) video_timing.record(time);
+    if (bytes+size>4*1024*1024 || packets.size()>=512) {
+        ++overflow;++dropped_packets;if(video)++dropped_video_frames;reset=true;return;
+    }
     Packet p; p.video=video;p.codec=codec;p.timestamp=time;p.data.assign(data,data+size);
     bytes+=size; packets.push_back(std::move(p));
+    peak_packets=std::max(peak_packets,packets.size());peak_bytes=std::max(peak_bytes,bytes);
 }
 bool Receiver::pop(Packet& p,uint64_t latest) {
     std::lock_guard<std::mutex> l(mutex);
@@ -38,7 +54,7 @@ bool Receiver::pop(Packet& p,uint64_t latest) {
     if(i->timestamp>latest)return false;
     p=std::move(*i);bytes-=p.data.size();packets.erase(i);return true;
 }
-void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=0;pin_text.clear();client.clear(); }
+void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=0;pin_text.clear();client.clear();video_timing.reset(); }
 static bool valid_key(const char *p) {
     if(!p || strlen(p)!=44) return false;
     return strspn(p,"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")==44;
@@ -69,8 +85,8 @@ bool Receiver::start(const std::string& dir) {
     cb.audio_process=[](void *p,raop_ntp_t *,audio_decode_struct *d){self(p).enqueue(false,d->ct,d->ntp_time_remote,d->data,d->data_len);};
     cb.video_process=[](void *p,raop_ntp_t *,video_decode_struct *d){if(!d->is_h265)self(p).enqueue(true,0,d->ntp_time_remote,d->data,d->data_len);};
     cb.conn_feedback=[](void *p){self(p).activity=now_ns();};
-    cb.conn_reset=[](void *p,int reason){fprintf(stderr,"[session] transport reset reason=%d\n",reason);self(p).reset=true;};
-    cb.video_reset=[](void *p,reset_type_t reason){fprintf(stderr,"[session] video reset reason=%d\n",int(reason));self(p).reset=true;};
+    cb.conn_reset=[](void *p,int reason){fprintf(stderr,"[session] transport reset reason=%d\n",reason);++self(p).session_resets;self(p).reset=true;};
+    cb.video_reset=[](void *p,reset_type_t reason){fprintf(stderr,"[session] video reset reason=%d\n",int(reason));++self(p).session_resets;self(p).reset=true;};
     cb.video_pause=[](void *p){self(p).paused=true;};
     cb.video_resume=[](void *p){self(p).paused=false;};
     cb.audio_flush=[](void *p){self(p).audio_flush=true;};

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <mutex>
 #include <sstream>
+#include <time.h>
 
 // This firmware exports a three-argument wrapper; the NDK declaration omits taskId.
 extern "C" int acb_video_info(long, const char *, long *) __asm__("AcbAPI_setMediaVideoData");
@@ -38,6 +39,10 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
     close();
     ready = playing = ended = failed = false;
     frames = 0;
+    feed_video_accepted=feed_audio_accepted=0;
+    feed_video_retries=feed_audio_retries=0;
+    feed_calls=0;
+    feed_time_ns=feed_max_time_ns=0;
     acb_ = AcbAPI_create();
     if (!acb_ || !AcbAPI_initialize(acb_, PLAYER_TYPE_MSE, app_id, acb_event)) {
         fprintf(stderr, "[media] ACB initialization failed\n"); close(); return false;
@@ -83,12 +88,27 @@ void Media::tick() {
 }
 FeedResult Media::feed(const void *data, size_t size, int64_t pts_ns, bool video) {
     if (!api_ || !loaded_ || failed || !data || !size) return FeedResult::Error;
+    struct timespec before, after;
+    clock_gettime(CLOCK_MONOTONIC, &before);
     char payload[200];
     snprintf(payload, sizeof(payload), "{\"bufferAddr\":\"%p\",\"bufferSize\":%zu,\"pts\":%lld,\"esData\":%d}",
              data, size, (long long)pts_ns, video ? 1 : 2);
     std::string reply = api_->Feed(payload);
-    if (reply.find("Ok") != std::string::npos) return FeedResult::Accepted;
-    if (reply.find("BufferFull") != std::string::npos || reply.find("Pending") != std::string::npos) return FeedResult::Retry;
+    clock_gettime(CLOCK_MONOTONIC, &after);
+    int64_t elapsed_signed=int64_t(after.tv_sec-before.tv_sec)*1000000000LL+int64_t(after.tv_nsec-before.tv_nsec);
+    uint64_t elapsed=elapsed_signed>0?uint64_t(elapsed_signed):0;
+    ++feed_calls;
+    feed_time_ns.fetch_add(elapsed);
+    uint64_t previous=feed_max_time_ns.load();
+    while(previous<elapsed&&!feed_max_time_ns.compare_exchange_weak(previous,elapsed)) {}
+    if (reply.find("Ok") != std::string::npos) {
+        (video?feed_video_accepted:feed_audio_accepted).fetch_add(1);
+        return FeedResult::Accepted;
+    }
+    if (reply.find("BufferFull") != std::string::npos || reply.find("Pending") != std::string::npos) {
+        (video?feed_video_retries:feed_audio_retries).fetch_add(1);
+        return FeedResult::Retry;
+    }
     fprintf(stderr, "[media] Feed rejected: %s\n", reply.c_str());
     return FeedResult::Error;
 }

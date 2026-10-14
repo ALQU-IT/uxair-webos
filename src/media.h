@@ -17,6 +17,10 @@ public:
     void close();
     std::atomic<bool> ready{false}, playing{false}, ended{false}, failed{false};
     std::atomic<unsigned> frames{0};
+    std::atomic<uint64_t> feed_video_accepted{0}, feed_audio_accepted{0};
+    std::atomic<uint64_t> feed_video_retries{0}, feed_audio_retries{0};
+    std::atomic<uint64_t> feed_calls{0};
+    std::atomic<uint64_t> feed_time_ns{0}, feed_max_time_ns{0};
 private:
     static void event(int type, int64_t value, const char *message, void *user);
     StarfishMediaAPIs *api_ = nullptr;

@@ -33,6 +33,8 @@ Hardware inspection and tests started 2026-09-06. This record distinguishes user
 
 `FRAMEREADY` callbacks are throttled by the platform and are not a per-frame FPS counter. Use the decoder's throughput logs or an external recording for actual frame rate.
 
+The receiver now emits five-second `[video]`, `[pipeline]`, `[audio]`, and `[health]` samples to `uxplay.log`. `[video] incoming_fps` counts H.264 packets at ingress; `pts_fps` and the interval min/average/max use successive remote presentation timestamps (intervals over two seconds are excluded as clock discontinuities). `feed_fps` counts access units accepted by Starfish. `decoder_events_s` reports `FRAMEREADY` callbacks and remains approximate because firmware throttles them. Pipeline retry counts are per sample; queue drops and high-water marks are cumulative for the process. RSS is read from `/proc/self/status` and is `-1` if unavailable. Audio decode times are sampled around the FFmpeg decode call and do not include Starfish audio output.
+
 ## In progress / not yet certified
 
 - Instrumented 30-minute iPad session with RSS and receiver telemetry, to complement the completed manual video soak.

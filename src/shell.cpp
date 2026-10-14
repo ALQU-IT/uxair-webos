@@ -90,8 +90,9 @@ void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *fon
     SDL_Surface *surface=TTF_RenderUTF8_Blended(font,s.c_str(),color);if(!surface)return;
     SDL_Texture *texture=SDL_CreateTextureFromSurface(renderer,surface);
     int width=std::min(surface->w,max_width);
+    SDL_Rect source={0,0,width,surface->h};
     SDL_Rect rect={x,y,width,surface->h};
-    if(texture) { SDL_RenderCopy(renderer,texture,nullptr,&rect); SDL_DestroyTexture(texture); }
+    if(texture) { SDL_RenderCopy(renderer,texture,&source,&rect); SDL_DestroyTexture(texture); }
     SDL_FreeSurface(surface);
 }
 void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer) {

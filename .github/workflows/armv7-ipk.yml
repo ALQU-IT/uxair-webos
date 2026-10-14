@@ -1,0 +1,59 @@
+name: Build ARMv7 development IPK
+
+on:
+  push:
+    branches:
+      - feature/b7-optimization
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipk:
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify Apple Silicon host
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          xcode-select -p
+          python3 --version
+          node --version
+      - name: Install build and packaging tools
+        run: |
+          brew install cmake ninja pkgconf
+          npm install --global @webos-tools/cli@3.2.6
+          cmake --version
+          ninja --version
+          pkg-config --version
+          ares -V
+          command -v ares-package
+      - name: Validate source metadata
+        run: python3 tools/validate-metadata.py
+      - name: Build isolated development IPK
+        run: tools/build.sh --development
+      - name: Verify staged ELF and package
+        run: |
+          python3 tools/verify-elf.py build/app | tee dist/ELF_REPORT.txt
+          python3 tools/validate-ipk.py --development
+      - name: Record source commit and package checksum
+        run: |
+          git rev-parse HEAD > dist/BUILD_COMMIT.txt
+          shasum -a 256 dist/*.ipk > dist/SHA256SUMS
+          cat dist/BUILD_COMMIT.txt dist/SHA256SUMS dist/ELF_REPORT.txt
+      - name: Upload verified development package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: uxplay-webos-armv7-dev-${{ github.sha }}
+          path: |
+            dist/*.ipk
+            dist/SHA256SUMS
+            dist/BUILD_COMMIT.txt
+            dist/ELF_REPORT.txt
+          if-no-files-found: error
+          retention-days: 14

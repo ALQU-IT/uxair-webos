@@ -8,6 +8,9 @@ echo 'PASS: arrival/PTS gap attribution, timing windows, duration samples and re
 if [[ "${1:-}" == "--diagnostics-only" ]]; then
   exit 0
 fi
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
+  tests/state_test.cpp src/settings.cpp src/usage_stats.cpp -o build/tests/state-test
+build/tests/state-test
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=1280x720 -frames:v 1 -c:v libx264 -profile:v baseline -f h264 build/tests/landscape.h264
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=720x1280 -frames:v 1 -c:v libx264 -profile:v high -f h264 build/tests/portrait.h264
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i sine=sample_rate=44100 -t 1 -ac 2 -c:a aac -f adts build/tests/audio.aac

@@ -1,5 +1,7 @@
 # UxPlay webOS validation on LJ600B
 
+For the separate LG OLED B7 / Rockhopper 3.9.0 observations and the frame pacing comparison plan, see [Milestone 2](MILESTONE2.md). The owner confirmed the earlier development IPK works for discovery, Screen Mirroring, photos, video, and audio. The new pacing instrumentation and any resulting package still require a B7 run.
+
 Hardware inspection and tests started 2026-09-06. This record distinguishes user-observed playback from protocol/log checks.
 
 ## Target and environment

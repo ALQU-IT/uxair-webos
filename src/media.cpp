@@ -9,6 +9,7 @@
 // This firmware exports a three-argument wrapper; the NDK declaration omits taskId.
 extern "C" int acb_video_info(long, const char *, long *) __asm__("AcbAPI_setMediaVideoData");
 struct Media::Impl { std::mutex mutex; std::string video_info; };
+static int64_t monotonic_ns() { timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return int64_t(t.tv_sec)*1000000000LL+t.tv_nsec; }
 Media::Media() : impl_(new Impl) {}
 Media::~Media() { close(); delete impl_; }
 static void acb_event(long, long, long event, long app, long play, const char *reply) {
@@ -16,7 +17,7 @@ static void acb_event(long, long, long event, long app, long play, const char *r
 }
 void Media::event(int type, int64_t value, const char *message, void *user) {
     Media *m = static_cast<Media *>(user);
-    if (type == PF_EVENT_TYPE_FRAMEREADY) { ++m->frames; return; }
+    if (type == PF_EVENT_TYPE_FRAMEREADY) { ++m->frames; m->last_frame_event_ns=monotonic_ns(); return; }
     if (type == PF_EVENT_TYPE_INT_NEED_DATA || type == PF_EVENT_TYPE_INT_ENOUGH_DATA || type == PF_EVENT_TYPE_INT_BUFFERLOW || type == 0x2a) return;
     fprintf(stderr, "[smp] event=0x%x value=%lld %s\n", type, (long long)value, message ? message : "");
     switch (type) {
@@ -39,18 +40,32 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
     close();
     ready = playing = ended = failed = false;
     frames = 0;
+    last_frame_event_ns = 0;
     feed_video_accepted=feed_audio_accepted=0;
     feed_video_retries=feed_audio_retries=0;
     feed_calls=0;
     feed_time_ns=feed_max_time_ns=0;
+    play_attempts_=0;
+    int64_t phase=monotonic_ns();
+    fprintf(stderr,"[media-init] ACB create begin\n");
     acb_ = AcbAPI_create();
+    fprintf(stderr,"[media-init] ACB create end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
+    phase=monotonic_ns();
+    fprintf(stderr,"[media-init] ACB initialize begin\n");
     if (!acb_ || !AcbAPI_initialize(acb_, PLAYER_TYPE_MSE, app_id, acb_event)) {
         fprintf(stderr, "[media] ACB initialization failed\n"); close(); return false;
     }
+    fprintf(stderr,"[media-init] ACB initialize end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
+    phase=monotonic_ns();
+    fprintf(stderr,"[media-init] Starfish construct begin\n");
     api_ = new StarfishMediaAPIs(nullptr);
+    fprintf(stderr,"[media-init] Starfish construct end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
+    phase=monotonic_ns();
+    fprintf(stderr,"[media-init] ACB media ID begin\n");
     if (!AcbAPI_setMediaId(acb_, api_->getMediaID())) {
         fprintf(stderr, "[media] ACB media registration failed\n"); close(); return false;
     }
+    fprintf(stderr,"[media-init] ACB media ID end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
     std::ostringstream p;
     p << "{\"args\":[{\"mediaTransportType\":\"BUFFERSTREAM\",\"option\":{\"appId\":\"" << app_id
       << "\",\"queryPosition\":false,\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\"H264\"";
@@ -63,25 +78,40 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
          "\"srcBufferLevelAudio\":{\"minimum\":1024,\"maximum\":131072},\"srcBufferLevelVideo\":{\"minimum\":1024,\"maximum\":1048576}}},"
          "\"adaptiveStreaming\":{\"audioOnly\":false,\"maxWidth\":" << width << ",\"maxHeight\":" << height << ",\"maxFrameRate\":30}}}]}";
     fprintf(stderr, "[media] Load %s\n", p.str().c_str());
+    phase=monotonic_ns();
     loaded_ = api_->Load(p.str().c_str(), event, this);
+    fprintf(stderr,"[media-init] Starfish Load end ms=%.2f success=%d\n",(monotonic_ns()-phase)/1e6,int(loaded_));
     if (!loaded_) { close(); return false; }
+    phase=monotonic_ns();
     AcbAPI_setDisplayWindow(acb_, 0, 0, width, height, true, &task_);
+    fprintf(stderr,"[media-init] ACB display window end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
     return true;
 }
 void Media::tick() {
     if (!api_ || !loaded_ || failed) return;
     if (ready && !sink_attached_) {
+        fprintf(stderr,"[media-init] ACB sink and loaded state begin\n");
         AcbAPI_setSinkType(acb_, SINK_TYPE_MAIN);
         AcbAPI_setState(acb_, APPSTATE_FOREGROUND, PLAYSTATE_LOADED, &task_);
+        fprintf(stderr,"[media-init] ACB sink and loaded state end\n");
         sink_attached_ = true;
     }
     if (video_info_pending_.exchange(false)) {
         std::lock_guard<std::mutex> lock(impl_->mutex);
-        acb_video_info(acb_, impl_->video_info.c_str(), &task_);
+        fprintf(stderr,"[media-init] ACB video info begin\n");
+        int result=acb_video_info(acb_, impl_->video_info.c_str(), &task_);
+        fprintf(stderr,"[media-init] ACB video info end result=%d\n",result);
     }
-    if (ready && !play_requested_) play_requested_ = api_->Play();
+    if (ready && !play_requested_) {
+        ++play_attempts_;
+        if(play_attempts_==1 || play_attempts_%100==0)fprintf(stderr,"[media-init] Starfish Play attempt=%u\n",play_attempts_);
+        play_requested_ = api_->Play();
+        if(play_requested_)fprintf(stderr,"[media-init] Starfish Play accepted after %u attempts\n",play_attempts_);
+    }
     if (playing && sink_attached_ && !acb_playing_) {
+        fprintf(stderr,"[media-init] ACB playing state begin\n");
         AcbAPI_setState(acb_, APPSTATE_FOREGROUND, PLAYSTATE_PLAYING, &task_);
+        fprintf(stderr,"[media-init] ACB playing state end\n");
         // ACB only needs the transition once; playing remains observable by the caller.
         acb_playing_=true;
     }
@@ -125,5 +155,6 @@ void Media::close() {
         fprintf(stderr, "[media] ACB released\n");
     }
     loaded_ = sink_attached_ = play_requested_ = acb_playing_ = false;
+    play_attempts_=0;
     video_info_pending_ = false;
 }

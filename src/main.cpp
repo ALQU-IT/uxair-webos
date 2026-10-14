@@ -46,6 +46,10 @@ int main() {
     unsigned sessions_started=0,sessions_ended=0,last_decoder_events=0;
     uint64_t last_feed_video=0,last_feed_audio=0,last_feed_video_retries=0,last_feed_audio_retries=0;
     uint64_t audio_decode_calls=0,audio_decode_ns=0,audio_decode_max_ns=0;
+    VideoTiming video_feed_timing;
+    DurationWindow video_parse_time, video_schedule_late, video_pending_time;
+    DurationWindow video_feed_time, audio_feed_time, media_tick_time, loop_gap_time;
+    int64_t previous_loop=0;
     auto finish=[&](){
         if(opened) {
             ++sessions_ended;
@@ -53,10 +57,14 @@ int main() {
         }
         media.close();decoder.reset();receiver.disconnect();opened=false;have_pending=false;
         origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;
+        video_feed_timing.reset();video_parse_time.reset();video_schedule_late.reset();video_pending_time.reset();
+        video_feed_time.reset();audio_feed_time.reset();media_tick_time.reset();
     };
     bool running=true;
     while(running) {
         int64_t now=now_ns();
+        if(previous_loop)loop_gap_time.record(uint64_t(std::max<int64_t>(0,now-previous_loop)));
+        previous_loop=now;
         Action action=shell.action();
         if(action==Action::Exit)break;
         if(action==Action::Back) {
@@ -72,7 +80,9 @@ int main() {
         }
         if(receiver.audio_flush.exchange(false))decoder.reset();
         if(opened) {
+            int64_t tick_begin=now_ns();
             media.tick();
+            media_tick_time.record(uint64_t(std::max<int64_t>(0,now_ns()-tick_begin)));
             bool paused=receiver.paused;
             if(paused!=last_paused) {media.pause(paused);last_paused=paused;}
             if(media.failed) {finish();receiver.show("Playback error. Connect again.");}
@@ -93,7 +103,11 @@ int main() {
         if(now-last_stats>5000000000LL) {
             double window_s=(now-last_stats)/1e9;
             VideoTimingSample timing=receiver.take_video_timing();
+            VideoTimingSample fed=video_feed_timing.take_window();
             ReceiverDiagnostics q=receiver.diagnostics();
+            DurationSample parsed=video_parse_time.take_window(),late=video_schedule_late.take_window();
+            DurationSample pending_wait=video_pending_time.take_window(),video_feed=video_feed_time.take_window();
+            DurationSample audio_feed=audio_feed_time.take_window(),tick=media_tick_time.take_window(),loop=loop_gap_time.take_window();
             unsigned frame_events=media.frames.load();
             unsigned event_delta=frame_events-last_decoder_events;
             double incoming_fps=timing.frames/window_s;
@@ -109,6 +123,25 @@ int main() {
                 (unsigned long long)(media.feed_audio_retries.load()-last_feed_audio_retries),
                 (media.feed_audio_accepted.load()-last_feed_audio)/window_s,
                 media.feed_calls.load()?media.feed_time_ns.load()/double(media.feed_calls.load())/1000:0.0,media.feed_max_time_ns.load()/1000.0);
+            if(opened) fprintf(stderr,"[pacing] arrival_gap_max_ms=%.2f pts_gap_max_ms=%.2f feed_gap_max_ms=%.2f arrival_gaps_gt100=%llu pts_gaps_gt100=%llu both=%llu arrival_only=%llu pts_only=%llu pts_discontinuities=%llu video_idle_ms=%.0f mirror=%d paused=%d callbacks_idle_ms=%.0f\n",
+                timing.arrival_interval_max_ns/1e6,timing.interval_max_ns/1e6,fed.arrival_interval_max_ns/1e6,
+                (unsigned long long)timing.arrival_gaps_over_100ms,(unsigned long long)timing.pts_gaps_over_100ms,
+                (unsigned long long)timing.gaps_in_both,(unsigned long long)timing.arrival_only_gaps,(unsigned long long)timing.pts_only_gaps,
+                (unsigned long long)timing.pts_discontinuities,
+                receiver.last_video_arrival.load()?std::max<int64_t>(0,now-receiver.last_video_arrival.load())/1e6:-1.0,
+                int(receiver.mirror.load()),int(receiver.paused.load()),
+                media.last_frame_event_ns.load()?std::max<int64_t>(0,now-media.last_frame_event_ns.load())/1e6:-1.0);
+            if(opened) fprintf(stderr,"[queue-video] current=%zu packets/%zu bytes peak=%zu packets/%zu bytes ingress_to_queue_ms=%.2f/%.2f queue_residence_ms=%.2f/%.2f pending_to_feed_ms=%.2f/%.2f schedule_late_ms=%.2f/%.2f parse_ms=%.2f/%.2f copy_ms=%.2f lock_wait_ms=%.2f pop_ms=%.2f\n",
+                q.video_queue_packets,q.video_queue_bytes,q.peak_video_queue_packets,q.peak_video_queue_bytes,
+                q.ingress_to_queue.average_ms(),q.ingress_to_queue.maximum_ms(),
+                q.video_queue_residence.average_ms(),q.video_queue_residence.maximum_ms(),
+                pending_wait.average_ms(),pending_wait.maximum_ms(),late.average_ms(),late.maximum_ms(),
+                parsed.average_ms(),parsed.maximum_ms(),
+                q.ingress_copy.maximum_ms(),q.queue_lock_wait.maximum_ms(),q.queue_pop.maximum_ms());
+            if(opened) fprintf(stderr,"[stage] loop_ms=%.2f tick_ms=%.2f video_feed_ms=%.2f audio_feed_ms=%.2f loop_gt50=%llu video_feed_gt50=%llu audio_feed_gt50=%llu audio_queue_residence_ms=%.2f/%.2f\n",
+                loop.maximum_ms(),tick.maximum_ms(),video_feed.maximum_ms(),audio_feed.maximum_ms(),
+                (unsigned long long)loop.over_50ms,(unsigned long long)video_feed.over_50ms,(unsigned long long)audio_feed.over_50ms,
+                q.audio_queue_residence.average_ms(),q.audio_queue_residence.maximum_ms());
             if(opened) fprintf(stderr,"[audio] sent=%u decode_errors=%u decode_avg_us=%.1f decode_max_us=%.1f late=%u silence=%u\n",
                 audio_count,decode_errors,audio_decode_calls?audio_decode_ns/double(audio_decode_calls)/1000:0.0,audio_decode_max_ns/1000.0,late_audio,silence_blocks);
             fprintf(stderr,"[health] uptime_s=%.0f session_age_s=%.1f sessions_started=%u sessions_ended=%u reset_events=%u rss_kb=%ld\n",
@@ -130,15 +163,22 @@ int main() {
             // Start on a random-access video frame. Pre-roll audio is intentionally
             // discarded, then both streams share this frame's remote NTP origin.
             if(!pending.video) {have_pending=false;continue;}
+            int64_t parse_begin=now_ns();
             auto info=inspect_h264(pending.data.data(),pending.data.size());
+            video_parse_time.record(uint64_t(std::max<int64_t>(0,now_ns()-parse_begin)));
             if(!info.valid){++invalid_video;have_pending=false;continue;}
             if(!info.configuration.empty())configuration=info.configuration;
             if(info.width) {width=info.width;height=info.height;}
             if(!info.keyframe||configuration.empty()) {have_pending=false;continue;}
-            if(!media.open(app_id,width,height,true)) {
+            int64_t open_begin=now_ns();
+            bool media_opened=media.open(app_id,width,height,true);
+            fprintf(stderr,"[media-init] open_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
+            if(!media_opened) {
                 finish();receiver.show("Could not open the TV decoder.");continue;
             }
-            opened=true;origin=pending.timestamp;start=now+200000000;stall=0;session_started=now;++sessions_started;
+            // The pre-roll starts after synchronous decoder initialization.
+            // Reusing the loop's old `now` would silently consume it in Load().
+            opened=true;origin=pending.timestamp;session_started=now_ns();start=session_started+200000000;stall=0;++sessions_started;
             video_count=audio_count=decode_errors=late_audio=silence_blocks=invalid_video=0;
             audio_decode_calls=audio_decode_ns=audio_decode_max_ns=0;
             last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
@@ -151,13 +191,19 @@ int main() {
         if(pts>now-start+5000000000LL) {fprintf(stderr,"[session] timestamp discontinuity\n");finish();receiver.show("Device clock changed. Connect again.");continue;}
         if(now<start+pts) {SDL_Delay(2);continue;}
         if(pending.video && pending.codec==0) {
+            int64_t parse_begin=now_ns();
             auto info=inspect_h264(pending.data.data(),pending.data.size());
+            video_parse_time.record(uint64_t(std::max<int64_t>(0,now_ns()-parse_begin)));
             if(!info.valid){++invalid_video;have_pending=false;continue;}
             if(!info.configuration.empty())configuration=info.configuration;
             if(info.width && (width!=info.width||height!=info.height)) {
                 media.close();width=info.width;height=info.height;
-                if(!info.keyframe || !media.open(app_id,width,height,true)) {finish();continue;}
-                origin=pending.timestamp;start=now;pts=0;audio_end=0;audio_started=false;decoder.reset();
+                int64_t open_begin=now_ns();
+                bool media_opened=info.keyframe && media.open(app_id,width,height,true);
+                fprintf(stderr,"[media-init] reopen_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
+                if(!media_opened) {finish();continue;}
+                origin=pending.timestamp;start=now_ns();pts=0;audio_end=0;audio_started=false;decoder.reset();
+                video_feed_timing.reset();
                 last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
                 fprintf(stderr,"[session] geometry=%dx%d\n",width,height);
             }
@@ -189,9 +235,17 @@ int main() {
             pending.data.erase(pending.data.begin(),pending.data.begin()+trim);
             pending.timestamp=origin+audio_end;pts=audio_end;
         }
+        int64_t feed_begin=now_ns();
         auto result=media.feed(pending.data.data(),pending.data.size(),pts,pending.video);
+        int64_t feed_end=now_ns();
+        (pending.video?video_feed_time:audio_feed_time).record(uint64_t(std::max<int64_t>(0,feed_end-feed_begin)));
         if(result==FeedResult::Accepted) {
-            if(pending.video)++video_count;else {++audio_count;audio_end=pts+int64_t(pending.data.size()/4)*1000000000/44100;}
+            if(pending.video) {
+                ++video_count;
+                video_feed_timing.record(pending.timestamp,feed_end);
+                video_schedule_late.record(uint64_t(std::max<int64_t>(0,feed_begin-(start+pts))));
+                video_pending_time.record(uint64_t(std::max<int64_t>(0,feed_begin-pending.dequeued_ns)));
+            } else {++audio_count;audio_end=pts+int64_t(pending.data.size()/4)*1000000000/44100;}
             have_pending=false;stall=0;
         } else if(result==FeedResult::Retry) {
             if(!stall)stall=now;

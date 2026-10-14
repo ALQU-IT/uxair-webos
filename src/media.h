@@ -17,6 +17,7 @@ public:
     void close();
     std::atomic<bool> ready{false}, playing{false}, ended{false}, failed{false};
     std::atomic<unsigned> frames{0};
+    std::atomic<int64_t> last_frame_event_ns{0};
     std::atomic<uint64_t> feed_video_accepted{0}, feed_audio_accepted{0};
     std::atomic<uint64_t> feed_video_retries{0}, feed_audio_retries{0};
     std::atomic<uint64_t> feed_calls{0};
@@ -26,6 +27,7 @@ private:
     StarfishMediaAPIs *api_ = nullptr;
     long acb_ = 0, task_ = 0;
     bool loaded_ = false, sink_attached_ = false, play_requested_ = false, acb_playing_ = false;
+    unsigned play_attempts_ = 0;
     std::atomic<bool> video_info_pending_{false};
     // Firmware callbacks and Feed run on separate threads.
     struct Impl;

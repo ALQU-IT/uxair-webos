@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 mkdir -p build/tests
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/diagnostics_test.cpp -o build/tests/diagnostics-test
 build/tests/diagnostics-test
-echo 'PASS: incoming video timing windows, timestamp discontinuities and reset'
+echo 'PASS: arrival/PTS gap attribution, timing windows, duration samples and reset'
 if [[ "${1:-}" == "--diagnostics-only" ]]; then
   exit 0
 fi

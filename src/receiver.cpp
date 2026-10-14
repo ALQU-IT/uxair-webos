@@ -22,7 +22,15 @@ ReceiverDiagnostics Receiver::diagnostics() {
     ReceiverDiagnostics d;
     d.queue_packets=packets.size();d.queue_bytes=bytes;
     d.peak_queue_packets=peak_packets;d.peak_queue_bytes=peak_bytes;
+    d.video_queue_packets=video_packets;d.video_queue_bytes=video_bytes;
+    d.peak_video_queue_packets=peak_video_packets;d.peak_video_queue_bytes=peak_video_bytes;
     d.dropped_packets=dropped_packets;d.dropped_video_frames=dropped_video_frames;
+    d.ingress_to_queue=ingress_to_queue.take_window();
+    d.ingress_copy=ingress_copy.take_window();
+    d.queue_lock_wait=queue_lock_wait.take_window();
+    d.queue_pop=queue_pop.take_window();
+    d.video_queue_residence=video_queue_residence.take_window();
+    d.audio_queue_residence=audio_queue_residence.take_window();
     return d;
 }
 VideoTimingSample Receiver::take_video_timing() {
@@ -31,31 +39,55 @@ VideoTimingSample Receiver::take_video_timing() {
 }
 void Receiver::enqueue(bool video,unsigned codec,uint64_t time,const uint8_t *data,int size) {
     if (!data || size<=0 || size>1048576 || !time) return;
-    activity=now_ns();
+    const int64_t arrival=now_ns();
+    activity=arrival;
+    if(video)last_video_arrival=arrival;
     if(!video) {
-        last_audio_arrival=now_ns();
+        last_audio_arrival=arrival;
         int64_t offset=int64_t(audio_delay_ms.load())*1000000;
         if(offset<0 && time<uint64_t(-offset))return;
         time=offset>=0?time+uint64_t(offset):time-uint64_t(-offset);
     }
+    // Copy callback-owned memory before taking the A/V queue lock.
+    Packet p; p.video=video;p.codec=codec;p.timestamp=time;p.arrival_ns=arrival;
+    p.data.assign(data,data+size);
+    const int64_t copy_done=now_ns();
     std::lock_guard<std::mutex> l(mutex);
-    if(video) video_timing.record(time);
+    const int64_t lock_acquired=now_ns();
+    ingress_copy.record(uint64_t(std::max<int64_t>(0,copy_done-arrival)));
+    queue_lock_wait.record(uint64_t(std::max<int64_t>(0,lock_acquired-copy_done)));
+    if(video) video_timing.record(time,arrival);
     if (bytes+size>4*1024*1024 || packets.size()>=512) {
         ++overflow;++dropped_packets;if(video)++dropped_video_frames;reset=true;return;
     }
-    Packet p; p.video=video;p.codec=codec;p.timestamp=time;p.data.assign(data,data+size);
+    p.enqueued_ns=now_ns();
+    ingress_to_queue.record(uint64_t(std::max<int64_t>(0,p.enqueued_ns-arrival)));
     bytes+=size; packets.push_back(std::move(p));
     peak_packets=std::max(peak_packets,packets.size());peak_bytes=std::max(peak_bytes,bytes);
+    if(video) {
+        ++video_packets;video_bytes+=size;
+        peak_video_packets=std::max(peak_video_packets,video_packets);
+        peak_video_bytes=std::max(peak_video_bytes,video_bytes);
+    }
 }
 bool Receiver::pop(Packet& p,uint64_t latest) {
+    const int64_t pop_begin=now_ns();
     std::lock_guard<std::mutex> l(mutex);
     if(packets.empty()) return false;
     // A/V callbacks arrive on different threads. Select the oldest presentation time.
     auto i=std::min_element(packets.begin(),packets.end(),[](const Packet& a,const Packet& b){return a.timestamp<b.timestamp;});
     if(i->timestamp>latest)return false;
-    p=std::move(*i);bytes-=p.data.size();packets.erase(i);return true;
+    p=std::move(*i);bytes-=p.data.size();packets.erase(i);
+    p.dequeued_ns=now_ns();
+    uint64_t residence=uint64_t(std::max<int64_t>(0,p.dequeued_ns-p.enqueued_ns));
+    if(p.video) {
+        --video_packets;video_bytes-=p.data.size();
+        video_queue_residence.record(residence);
+    } else audio_queue_residence.record(residence);
+    queue_pop.record(uint64_t(std::max<int64_t>(0,now_ns()-pop_begin)));
+    return true;
 }
-void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=0;pin_text.clear();client.clear();video_timing.reset(); }
+void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=video_packets=video_bytes=0;pin_text.clear();client.clear();video_timing.reset();ingress_to_queue.reset();ingress_copy.reset();queue_lock_wait.reset();queue_pop.reset();video_queue_residence.reset();audio_queue_residence.reset();last_video_arrival=0; }
 static bool valid_key(const char *p) {
     if(!p || strlen(p)!=44) return false;
     return strspn(p,"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")==44;

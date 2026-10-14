@@ -44,7 +44,7 @@ jobs:
       - name: Record source commit and package checksum
         run: |
           git rev-parse HEAD > dist/BUILD_COMMIT.txt
-          shasum -a 256 dist/*.ipk > dist/SHA256SUMS
+          (cd dist && shasum -a 256 *.ipk > SHA256SUMS)
           cat dist/BUILD_COMMIT.txt dist/SHA256SUMS dist/ELF_REPORT.txt
       - name: Upload verified development package
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

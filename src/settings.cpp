@@ -6,7 +6,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-bool supported_mirror_resolution(int width, int height) { return width == 1280 && height == 720; }
+bool supported_mirror_resolution(int width, int height) {
+    return (width == 1280 && height == 720) || (width == 1920 && height == 1080);
+}
 bool supported_mirror_fps(int fps) { return fps == 30; }
 bool set_mirror_resolution(Settings& settings, int width, int height) {
     if (!supported_mirror_resolution(width, height)) return false;
@@ -21,6 +23,29 @@ bool input_fits_mirror_profile(const Settings& settings, int width, int height) 
     const int long_edge=settings.width>settings.height?settings.width:settings.height;
     const int max_area=settings.width*settings.height;
     return width<=long_edge && height<=long_edge && int64_t(width)*height<=max_area;
+}
+MirrorLimits mirror_limits(const Settings& settings) {
+    Settings safe=settings; validate_settings(safe);
+    if (safe.width == 1920) return {2*1024*1024, 8*1024*1024, 2*1024*1024};
+    return {1024*1024, 4*1024*1024, 1024*1024};
+}
+VideoWindow fit_video_window(int source_width, int source_height, int canvas_width, int canvas_height) {
+    if (source_width<=0 || source_height<=0 || canvas_width<=0 || canvas_height<=0)
+        return {0,0,0,0};
+    int width=canvas_width, height=canvas_height;
+    if (int64_t(source_width)*canvas_height > int64_t(source_height)*canvas_width)
+        height=int(int64_t(canvas_width)*source_height/source_width);
+    else width=int(int64_t(canvas_height)*source_width/source_height);
+    return {(canvas_width-width)/2,(canvas_height-height)/2,width,height};
+}
+ProfileSwitchResult switch_mirror_profile(Settings& current, int width, int height,
+    const std::function<bool(const Settings&)>& activate) {
+    Settings proposed=current;
+    if (!set_mirror_resolution(proposed,width,height) ||
+        (proposed.width==current.width && proposed.height==current.height))
+        return ProfileSwitchResult::Unchanged;
+    if (activate(proposed)) { current=proposed; return ProfileSwitchResult::Applied; }
+    return activate(current) ? ProfileSwitchResult::Recovered : ProfileSwitchResult::Unavailable;
 }
 void validate_settings(Settings& settings) {
     if (!supported_mirror_resolution(settings.width, settings.height)) {
@@ -68,7 +93,8 @@ bool save_settings(const std::string& path, const Settings& settings) {
     FILE *file=fopen(temp.c_str(), "w");
     if (!file) return false;
     chmod(temp.c_str(), 0600);
-    bool ok=fprintf(file,"UXPLAY_SETTINGS_V1\nresolution=720p\nfps=30\nhdr=%s\ndiagnostics=%s\n",
+    bool ok=fprintf(file,"UXPLAY_SETTINGS_V1\nresolution=%s\nfps=30\nhdr=%s\ndiagnostics=%s\n",
+        safe.width==1920?"1080p":"720p",
         safe.hdr==HdrPolicy::Sdr?"sdr":"auto",
         safe.diagnostics==DiagnosticsMode::Compact?"compact":safe.diagnostics==DiagnosticsMode::Detailed?"detailed":"off")>0;
     if (fflush(file)!=0 || fsync(fileno(file))!=0) ok=false;

@@ -17,18 +17,20 @@ int main() {
 
     Settings settings;
     assert(supported_mirror_resolution(1280,720));
-    assert(!supported_mirror_resolution(1920,1080));
+    assert(supported_mirror_resolution(1920,1080));
     assert(!supported_mirror_resolution(3840,2160));
     assert(supported_mirror_fps(30) && !supported_mirror_fps(60));
     assert(input_fits_mirror_profile(settings,1280,720));
     assert(input_fits_mirror_profile(settings,720,1280)); // portrait orientation
     assert(!input_fits_mirror_profile(settings,1920,1080));
     assert(!input_fits_mirror_profile(settings,1080,1920));
-    assert(!set_mirror_resolution(settings,1920,1080));
+    assert(!set_mirror_resolution(settings,3840,2160));
     assert(!set_mirror_fps(settings,60));
     assert(settings.width==1280 && settings.height==720 && settings.max_fps==30);
     AdvertisedCapabilities profile=advertised_capabilities(settings);
     assert(profile.width==1280 && profile.height==720 && profile.max_fps==30);
+    assert(mirror_limits(settings).video_packet_bytes==1024*1024);
+    assert(mirror_limits(settings).queue_bytes==4*1024*1024);
     assert(!profile.direct_video && !profile.hls && !profile.hevc && profile.legacy_pairing);
     assert((UXPLAY_PINNED_FEATURES & (1ULL<<0))==0 && (UXPLAY_PINNED_FEATURES & (1ULL<<4))==0);
     assert((UXPLAY_PINNED_FEATURES & (1ULL<<42))==0 && (UXPLAY_PINNED_FEATURES & (1ULL<<27))!=0);
@@ -38,10 +40,36 @@ int main() {
     assert(load_settings(settings_path,loaded));
     assert(loaded.width==1280 && loaded.height==720 && loaded.max_fps==30);
     assert(loaded.hdr==HdrPolicy::Sdr && loaded.diagnostics==DiagnosticsMode::Detailed);
+    int attempts=0;
+    assert(switch_mirror_profile(settings,1920,1080,[&](const Settings& s){
+        ++attempts;return s.width==1280;
+    })==ProfileSwitchResult::Recovered);
+    assert(attempts==2 && settings.width==1280); // failed activation rolls back
+    assert(switch_mirror_profile(settings,3840,2160,[&](const Settings&){++attempts;return true;})==ProfileSwitchResult::Unchanged);
+    assert(attempts==2);
+    assert(switch_mirror_profile(settings,1920,1080,[&](const Settings&){return true;})==ProfileSwitchResult::Applied);
+    assert(input_fits_mirror_profile(settings,1920,1080));
+    assert(input_fits_mirror_profile(settings,1080,1920));
+    assert(!input_fits_mirror_profile(settings,1920,1200));
+    assert(!input_fits_mirror_profile(settings,2000,1000));
+    assert(mirror_limits(settings).video_packet_bytes==2*1024*1024);
+    assert(mirror_limits(settings).queue_bytes==8*1024*1024);
+    VideoWindow landscape=fit_video_window(1920,1080,1920,1080);
+    assert(landscape.x==0 && landscape.y==0 && landscape.width==1920 && landscape.height==1080);
+    VideoWindow portrait=fit_video_window(1080,1920,1920,1080);
+    assert(portrait.x==656 && portrait.y==0 && portrait.width==607 && portrait.height==1080);
+    assert(save_settings(settings_path,settings));
+    assert(load_settings(settings_path,loaded));
+    assert(loaded.width==1920 && loaded.height==1080 && loaded.max_fps==30);
+    profile=advertised_capabilities(loaded);
+    assert(profile.width==1920 && profile.height==1080 && profile.max_fps==30);
     { std::ofstream old(settings_path.c_str());old<<"UXPLAY_SETTINGS_V1\nresolution=1080p\nfps=60\nhdr=auto\ndiagnostics=compact\n"; }
     assert(load_settings(settings_path,loaded));
-    assert(loaded.width==1280 && loaded.height==720 && loaded.max_fps==30); // fallback
+    assert(loaded.width==1920 && loaded.height==1080 && loaded.max_fps==30); // 60 FPS fallback only
     assert(loaded.diagnostics==DiagnosticsMode::Compact);
+    { std::ofstream invalid(settings_path.c_str());invalid<<"UXPLAY_SETTINGS_V1\nresolution=4k\nfps=30\n"; }
+    assert(load_settings(settings_path,loaded));
+    assert(loaded.width==1280 && loaded.height==720); // safe recovery profile
 
     UsageStats usage;
     for(unsigned i=0;i<18;++i) {
@@ -69,5 +97,5 @@ int main() {
     assert(std::getline(keys,key_line) && key_line=="pairing-data-must-survive");
 
     remove(settings_path.c_str());remove(usage_path.c_str());remove(keys_path.c_str());rmdir(directory);
-    puts("PASS: profile gates, portrait limits, settings persistence, usage history and private-state reset");
+    puts("PASS: 720p/1080p profile, advertisement, portrait fit, rollback, persistence and usage state");
 }

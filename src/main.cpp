@@ -3,6 +3,7 @@
 #include "media.h"
 #include "receiver.h"
 #include "shell.h"
+#include "identity.h"
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
@@ -31,7 +32,7 @@ int main() {
         while(shell.pump())SDL_Delay(50);
         return 1;
     }
-    const char *app_id=getenv("APPID");if(!app_id)app_id="com.github.danlflh.uxplaywebos";
+    const char *app_id=getenv("APPID");if(!app_id)app_id=UXPLAY_APP_ID;
     Media media;AudioDecoder decoder;
     bool opened=false,have_pending=false,last_paused=false,audio_started=false;
     int width=1280,height=720;

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import pathlib
 import shutil
@@ -8,14 +9,25 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SDK = ROOT / '.cache/arm-webos-linux-gnueabi_sdk-buildroot'
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--development', action='store_true', help='Package the separately identified development receiver')
+    args = parser.parse_args()
+    variant = 'development' if args.development else 'production'
+    marker = ROOT / 'build/package-variant.txt'
+    if marker.exists() and marker.read_text().strip() != variant:
+        parser.error('package variant differs from the compiled receiver')
     stage = ROOT / 'build/app'
     # Staging is disposable; never package test sessions or local pairing keys.
     if stage.exists():
         shutil.rmtree(stage)
     (stage / 'lib').mkdir(parents=True)
     (stage / 'licenses').mkdir()
-    for name in ['appinfo.json', 'icon.png']:
-        shutil.copy2(ROOT / 'packaging' / name, stage / name)
+    app = json.loads((ROOT / 'packaging/appinfo.json').read_text())
+    if args.development:
+        app['id'] += '.dev'
+        app['title'] += ' Dev'
+    (stage / 'appinfo.json').write_text(json.dumps(app, indent=2) + '\n')
+    shutil.copy2(ROOT / 'packaging/icon.png', stage / 'icon.png')
     shutil.copy2(ROOT / 'build/uxplay-webos', stage / 'uxplay-webos')
     shutil.copy2(SDK / 'arm-webos-linux-gnueabi/sysroot/usr/lib/libstdc++.so.6', stage / 'lib/libstdc++.so.6')
     for source, dest in [
@@ -34,6 +46,10 @@ def main():
     subprocess.run(['python3', str(ROOT / 'tools/verify-elf.py'), str(stage)], check=True)
     (ROOT / 'dist').mkdir(exist_ok=True)
     subprocess.run(['ares-package', str(stage), '-o', str(ROOT / 'dist')], check=True)
+    package = ROOT / 'dist' / f"{app['id']}_{app['version']}_arm.ipk"
+    if not package.is_file() or not package.stat().st_size:
+        raise SystemExit(f'Expected nonempty package was not produced: {package}')
+    print(f'Packaged {package}')
 
 if __name__ == '__main__':
     main()

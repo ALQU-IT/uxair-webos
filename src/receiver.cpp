@@ -1,5 +1,6 @@
 #include "receiver.h"
 #include "shell.h"
+#include "identity.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -77,7 +78,7 @@ bool Receiver::start(const std::string& dir) {
     }
     char device_id[18];snprintf(device_id,sizeof(device_id),"%02X:%02X:%02X:%02X:%02X:%02X",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     int err=0;
-    dnssd=dnssd_init("UxPlay webOS",12,reinterpret_cast<char *>(mac),6,1,&err);
+    dnssd=dnssd_init(UXPLAY_DISPLAY_NAME,strlen(UXPLAY_DISPLAY_NAME),reinterpret_cast<char *>(mac),6,1,&err);
     if(!dnssd || err) { show("AirPlay discovery failed");return false; }
     dnssd_set_airplay_features(dnssd,0,0);dnssd_set_airplay_features(dnssd,4,0);
     dnssd_set_airplay_features(dnssd,42,0);dnssd_set_airplay_features(dnssd,27,1);

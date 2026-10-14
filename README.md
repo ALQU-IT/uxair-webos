@@ -10,7 +10,7 @@ This is an experimental `0.1.0` release. It has been validated on an LG **32LJ60
 
 - A rooted compatible LG webOS TV with the webOS Brew development environment.
 - The TV and sender on the same LAN with multicast/mDNS available.
-- For the current ARMv7 package build: Apple Silicon macOS, Xcode command-line tools, Git, CMake, Ninja, the webOS TV CLI (`ares-package`, `ares-install`, `ares-launch`), and FFmpeg. The checked-in target SDK pin currently selects macOS ARM64.
+- For the current ARMv7 package build: Apple Silicon macOS, Xcode command-line tools, Git, CMake, Ninja, and the webOS TV CLI (`ares-package`, `ares-install`, `ares-launch`). The checked-in target SDK pin selects macOS ARM64; pinned FFmpeg source is cross-compiled by the build.
 - For native tests on Ubuntu or WSL2 Ubuntu: a C++11 compiler, FFmpeg, pkg-config, and FFmpeg development packages. See [development environments](docs/DEVELOPMENT.md).
 
 ## Install and use
@@ -55,7 +55,7 @@ tools/source-package.py    # corresponding source archive
 python3 tools/validate-metadata.py
 ```
 
-The corresponding source archive is `dist/uxplay-webos-0.1.0-source.tar.gz`; it includes this source tree, pinned UxPlay source, original dependency archives, and build instructions. Native test CI runs on Ubuntu 24.04. Final ARMv7 packaging remains a local Apple Silicon task because the checked-in SDK pin is macOS ARM64; see [development environment findings](docs/DEVELOPMENT.md).
+The corresponding source archive is `dist/uxplay-webos-0.1.0-source.tar.gz`; it includes this source tree, pinned UxPlay source, original dependency archives, and build instructions. Native test CI runs on Ubuntu 24.04. The separate Apple Silicon workflow builds an isolated development IPK; see [download, installation, and rollback instructions](docs/DEVELOPMENT-IPK.md) and [development environment findings](docs/DEVELOPMENT.md).
 
 ## Architecture
 

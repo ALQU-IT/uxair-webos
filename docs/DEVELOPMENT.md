@@ -52,6 +52,8 @@ shasum -a 256 dist/*.ipk
 
 `tools/build.sh` verifies download hashes before extraction, builds the pinned private dependencies, cross-compiles, runs ELF verification during packaging, and writes the IPK under `dist/`. The explicit second ELF check is a final preflight of the staged package. This path has not been rerun in the current Windows workspace; the prior hardware validation used Apple Silicon macOS. It produces a development IPK only on a host with those prerequisites.
 
+The [Apple Silicon Actions workflow](../.github/workflows/armv7-ipk.yml) now runs `tools/build.sh --development` with the same locked SDK and uploads a separately identified development IPK after metadata, ELF, and package checks. See [artifact download and manual installation instructions](DEVELOPMENT-IPK.md). This build check does not establish runtime compatibility on the LG B7.
+
 To enable an Ubuntu target build, first obtain a Linux **x86_64** host SDK from a fixed release, independently record its SHA-256, inspect its target sysroot and `pkg-config` metadata against the pinned SDK, adapt the bootstrap and build scripts for the host, and validate a clean end-to-end build and `tools/verify-elf.py` result. A Linux AArch64 host is another possible route with the `.6` asset, but it needs a recorded checksum, a real AArch64 build environment, and the same validation. The artifact must retain the ARM32 soft-float and glibc 2.19 checks. The target media pipeline must continue linking Starfish and ACB and using TV-provided SDL2 libraries; native host test libraries are not substitutes for them.
 
 ## Runtime validation boundary

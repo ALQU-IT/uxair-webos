@@ -4,7 +4,7 @@ An experimental native AirPlay mirroring receiver for rooted LG webOS TVs. Open 
 
 ## Status and validated hardware
 
-This is an experimental `0.1.0` release. It has been validated on an LG **32LJ600B-SA**, firmware **06.10.60**, Rockhopper **3.9.3**, with an ARMv7 Cortex-A9 target. A development build has also been tested on an LG OLED B7 / Rockhopper 3.9.0 with mirroring, photos, video and stereo audio. The proven mirroring profile is H.264 at 1280×720 / 30 fps. See [the validation record](docs/VALIDATION.md), [B7 pacing record](docs/MILESTONE2.md), and [capability assessment](docs/CAPABILITIES.md).
+This is an experimental `0.1.0` release. It has been validated on an LG **32LJ600B-SA**, firmware **06.10.60**, Rockhopper **3.9.3**, with an ARMv7 Cortex-A9 target. A development build has also been tested on an LG OLED B7 / Rockhopper 3.9.0 with H.264 1080p/30 mirroring, actual 1920×1080 SPS, photos/video through mirroring and stereo audio. The default mirroring profile remains 1280×720 / 30 fps. See [the validation record](docs/VALIDATION.md), [B7 pacing record](docs/MILESTONE2.md), and [capability assessment](docs/CAPABILITIES.md).
 
 ## Requirements
 
@@ -27,10 +27,10 @@ The package is `dist/com.github.danlflh.uxplaywebos_0.1.0_arm.ipk`. Changing fro
 
 On the TV, open **UxPlay webOS**. Start Screen Mirroring from an iPhone, iPad, or Mac and select **UxPlay webOS**. Enter the PIN when prompted. On macOS, select **UxPlay webOS** as the audio output if it is not selected automatically.
 
-- Left/Right before connecting changes audio delay in 25 ms steps (−1000 to +1000 ms); positive values play audio later. The value is saved locally.
-- Back during a session disconnects and returns to the waiting screen. Back while waiting, or Exit, closes the app.
+- In the development build, Left/Right changes settings section, Up/Down focuses a row, OK opens a choice dialog, and Back cancels it. Set audio delay from **System Settings** before connecting; positive values play audio later. Settings are saved locally.
+- During playback, OK opens the diagnostics page; Back hides it, then Back again disconnects. Back from the idle Screen Mirroring section, or Exit, closes the app.
 - One transmitting device is accepted at a time.
-- The development app has a local TV settings, usage statistics and diagnostics interface. See [Milestone 3 phase-one controls and validation](docs/MILESTONE3.md). Higher resolutions and HDR are not enabled in this phase.
+- The development app has five settings sections, local usage statistics and diagnostics. See [Milestone 4 controls and TV validation](docs/MILESTONE4.md). Direct media, 4K, HEVC and HDR remain unavailable.
 
 For direct SSH helpers, explicitly set the connection details—no personal network, TV alias, or key path is embedded:
 
@@ -62,7 +62,7 @@ The corresponding source archive is `dist/uxplay-webos-0.1.0-source.tar.gz`; it 
 
 `src/receiver.cpp` integrates the pinned UxPlay core and handles discovery, PIN pairing, and bounded packet queues. `src/main.cpp` owns session lifecycle and timing. `src/media.cpp` feeds the TV hardware decoder through Starfish Media Pipeline and ACB, while FFmpeg decodes AAC-ELD, AAC-LC, ALAC, and PCM to stereo PCM. SDL owns the window and remote input while the hardware video plane remains visible.
 
-Queues are capped at 4 MiB/512 packets in the default 720p profile and 8 MiB/512 packets in the experimental 1080p profile. Decoder stalls, timestamp discontinuities, and queue overflow end the current session rather than allowing uncontrolled memory growth.
+Queues are capped at 4 MiB/512 packets in the default 720p profile and 8 MiB/512 packets in the B7-tested 1080p profile. Decoder stalls, timestamp discontinuities, and queue overflow end the current session rather than allowing uncontrolled memory growth.
 
 Every five seconds, `uxplay.log` records lightweight diagnostics while a session is active: incoming H.264 access-unit FPS, FPS and interval spread derived from remote presentation timestamps, accepted Starfish feed rate, decoder callback rate, feed retries and call latency, queue occupancy/high-water marks and drops, audio decode time/errors, process RSS, and session/reset counts. The incoming rate is measured at packet ingress. `FRAMEREADY` is a throttled firmware callback, so its reported rate is an activity signal rather than a precise hardware FPS measurement. Queue limits and playback behavior are unchanged by diagnostics.
 

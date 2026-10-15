@@ -1,5 +1,7 @@
 # Milestone 3, phase 1: settings, statistics and diagnostics
 
+**Later hardware result (Milestone 4 baseline):** The owner subsequently verified real 1920×1080/30 H.264 input SPS, stable playback, Magic Remote OK and the on-screen overlay on the LG B7 / Rockhopper 3.9.0. The phase notes below preserve what was known when each phase was implemented. See [Milestone 4](MILESTONE4.md) for the current UI and direct-media assessment.
+
 The [capability assessment](CAPABILITIES.md) is the source of truth for working and gated media paths. This phase preserves the B7-tested H.264 720p/30 profile. 1080p, 60 FPS, 4K, HEVC, direct media and HDR remain disabled. No media format or Starfish/ACB output mode has been changed.
 
 ## TV interface

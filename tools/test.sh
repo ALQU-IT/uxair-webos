@@ -18,6 +18,7 @@ cc -std=c11 -D_POSIX_C_SOURCE=200809L -g -fsanitize=address,undefined -Isrc \
   tests/direct_request_diag_test.c src/direct_request_diag.c -o build/tests/direct-request-diag-test
 build/tests/direct-request-diag-test
 python3 tests/instrument_uxplay_test.py
+python3 tests/direct_info_gate_test.py
 if ! pkg-config --exists sdl2; then
   echo 'SDL2 development files are required for input mapping tests.' >&2
   exit 2

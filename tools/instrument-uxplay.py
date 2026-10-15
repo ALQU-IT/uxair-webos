@@ -13,10 +13,37 @@ INCLUDE = '#include "raop.h"\n'
 GATE = '    if (!cseq && !raop->hls_support && !ble) {\n'
 PROBE = '''        int probe_body_length = -1;
         (void) http_request_get_data(request, &probe_body_length);
-        direct_request_diag_log(method, url,
-                                http_request_get_header(request, "Content-Type"), protocol,
-                                probe_body_length,
-                                http_request_get_header(request, "X-Apple-Session-ID") != NULL);
+        const char *probe_type = http_request_get_header(request, "Content-Type");
+        int probe_session = http_request_get_header(request, "X-Apple-Session-ID") != NULL;
+        if (direct_info_eligible(method, url, protocol, probe_type,
+                                 probe_body_length, probe_session)) {
+            /* Development-only handshake experiment. Reuse the pinned RTSP
+             * binary-plist info writer and its current DNS-SD feature mask.
+             * Do not enter the HLS dispatcher or change connection ownership. */
+            *response = http_response_create();
+            if (*response) {
+                char *info_data = NULL;
+                int info_length = 0;
+                http_response_init(*response, "HTTP/1.1", 200, "OK");
+                raop_handler_info(conn, request, *response, &info_data, &info_length);
+                if (info_data && info_length > 0) {
+                    http_response_add_header(*response, "Server", "AirTunes/"GLOBAL_VERSION);
+                    http_response_finish(*response, info_data, info_length);
+                    free(info_data);
+                    direct_request_diag_log_result(method, url, probe_type, protocol,
+                                                   probe_body_length, probe_session, 200);
+                    return;
+                }
+                free(info_data);
+                http_response_init(*response, "HTTP/1.1", 500, "Internal Server Error");
+                http_response_finish(*response, NULL, 0);
+                direct_request_diag_log_result(method, url, probe_type, protocol,
+                                               probe_body_length, probe_session, 500);
+                return;
+            }
+        }
+        direct_request_diag_log(method, url, probe_type, protocol,
+                                probe_body_length, probe_session);
 '''
 
 

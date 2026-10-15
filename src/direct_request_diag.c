@@ -67,17 +67,43 @@ static const char *category(const char *path, const char *content_type) {
     if(!strcmp(p,"other"))return "unknown";
     return "control";
 }
+static const char *info_query_label(const char *path) {
+    if(!path_is(path,"/info"))return "na";
+    if(!strcmp(path,"/info"))return "none";
+    if(!strcmp(path,"/info?txtAirPlay"))return "txt-airplay";
+    if(!strcmp(path,"/info?txtRAOP"))return "txt-raop";
+    return "other";
+}
+int direct_info_eligible(const char *method, const char *path,
+                         const char *protocol, const char *content_type,
+                         int body_length, int session_header_present) {
+    return method && !strcmp(method,"GET") && path && !strcmp(path,"/info") &&
+           protocol && !strcmp(protocol,"HTTP/1.1") && !content_type &&
+           body_length==0 && !session_header_present;
+}
+static const char *result_label(int result) {
+    if(result==200)return "200";
+    if(result==500)return "500";
+    return "0";
+}
+static void format_result(char *output, size_t capacity,
+                          const char *method, const char *path,
+                          const char *content_type, const char *protocol,
+                          int body_length, int session_header_present, int result) {
+    if(!output || !capacity)return;
+    int bounded=body_length<0?-1:body_length>PROBE_MAX_BYTES?PROBE_MAX_BYTES:body_length;
+    snprintf(output,capacity,
+             "[direct-probe] method=%s path=%s content_type=%s body_bytes=%d body_capped=%d protocol=%s session_header=%d category=%s result=%s info_query=%s",
+             method_label(method),path_label(path),type_label(content_type),bounded,
+             body_length>PROBE_MAX_BYTES,protocol_label(protocol),session_header_present?1:0,
+             category(path,content_type),result_label(result),info_query_label(path));
+}
 void direct_request_diag_format(char *output, size_t capacity,
                                 const char *method, const char *path,
                                 const char *content_type, const char *protocol,
                                 int body_length, int session_header_present) {
-    if(!output || !capacity)return;
-    int bounded=body_length<0?-1:body_length>PROBE_MAX_BYTES?PROBE_MAX_BYTES:body_length;
-    snprintf(output,capacity,
-             "[direct-probe] method=%s path=%s content_type=%s body_bytes=%d body_capped=%d protocol=%s session_header=%d category=%s result=0",
-             method_label(method),path_label(path),type_label(content_type),bounded,
-             body_length>PROBE_MAX_BYTES,protocol_label(protocol),session_header_present?1:0,
-             category(path,content_type));
+    format_result(output,capacity,method,path,content_type,protocol,
+                  body_length,session_header_present,0);
 }
 static volatile unsigned record_count=0;
 static int reserve_record(void) {
@@ -95,10 +121,17 @@ static int reserve_record(void) {
 void direct_request_diag_log(const char *method, const char *path,
                              const char *content_type, const char *protocol,
                              int body_length, int session_header_present) {
+    direct_request_diag_log_result(method,path,content_type,protocol,
+                                   body_length,session_header_present,0);
+}
+void direct_request_diag_log_result(const char *method, const char *path,
+                                    const char *content_type, const char *protocol,
+                                    int body_length, int session_header_present,
+                                    int result) {
     if(!reserve_record())return;
     char line[256];
-    direct_request_diag_format(line,sizeof(line),method,path,content_type,protocol,
-                               body_length,session_header_present);
+    format_result(line,sizeof(line),method,path,content_type,protocol,
+                  body_length,session_header_present,result);
     fprintf(stderr,"%s\n",line);
 }
 void direct_request_diag_body_limit(void) {

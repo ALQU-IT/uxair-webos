@@ -15,7 +15,16 @@ class InstrumentationTest(unittest.TestCase):
         source = '#include "raop.h"\n' + module.GATE + '        logger_log(original);\n    }\n'
         output = module.instrument_raop(source)
         self.assertIn('direct_request_diag_log(method, url,', output)
+        self.assertIn('direct_info_eligible(method, url, protocol, probe_type,', output)
+        self.assertIn('raop_handler_info(conn, request, *response, &info_data, &info_length);', output)
+        self.assertIn('http_response_init(*response, "HTTP/1.1", 200, "OK");', output)
+        self.assertIn('http_response_finish(*response, info_data, info_length);', output)
+        self.assertIn('direct_request_diag_log_result(method, url, probe_type, protocol,', output)
+        self.assertLess(output.index('direct_info_eligible'), output.index('logger_log(original)'))
+        self.assertLess(output.index('http_response_finish(*response, info_data, info_length)'),
+                        output.index('logger_log(original)'))
         self.assertLess(output.index('direct_request_diag_log'), output.index('logger_log(original)'))
+        self.assertNotIn('raop->hls_support = true', output)
         with self.assertRaises(ValueError):
             module.instrument_raop(source + module.GATE)
 

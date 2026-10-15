@@ -34,4 +34,4 @@ These are manual steps for the TV owner. No CI job connects to a TV.
 
 The owner has tested a previous development package on the LG OLED B7 with Rockhopper 3.9.0, confirming 1080p/30 H.264 mirroring with actual 1920×1080 SPS, no reported drops, Magic Remote OK and the playback overlay. Each newly built UI package still needs the [Milestone 4 TV procedure](MILESTONE4.md); a passing build and ELF check do not establish its runtime behavior.
 
-The current development package adds a temporary, metadata-only [direct-media request probe](MILESTONE4C.md). It leaves HLS and direct playback disabled. Follow the separate four-case capture procedure there and share only extracted probe markers.
+The development package has a temporary, metadata-only [direct-media request probe](MILESTONE4C.md). The [Milestone 4D handshake experiment](MILESTONE4D.md) also answers a narrowly scoped HTTP `/info` request without enabling HLS or direct playback. Follow its four-case capture and rollback procedure, and share only extracted probe markers.

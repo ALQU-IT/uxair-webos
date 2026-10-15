@@ -28,7 +28,28 @@ if(BUILD_RECEIVER)
     add_subdirectory(${UX}/lib/playfair)
     add_subdirectory(${UX}/lib/mdnsd)
     file(GLOB CORE CONFIGURE_DEPENDS "${UX}/lib/*.c")
+    if(BUILD_DEVELOPMENT_PACKAGE)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/instrument-uxplay.py" "${UX}/lib" "${CMAKE_BINARY_DIR}/generated"
+            RESULT_VARIABLE PROBE_RESULT
+        )
+        if(NOT PROBE_RESULT EQUAL 0)
+            message(FATAL_ERROR "Pinned UxPlay direct-request instrumentation failed")
+        endif()
+        foreach(PROBE_FILE raop.c http_request.c httpd.c)
+            list(REMOVE_ITEM CORE "${UX}/lib/${PROBE_FILE}")
+            list(APPEND CORE "${CMAKE_BINARY_DIR}/generated/${PROBE_FILE}")
+        endforeach()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${CMAKE_SOURCE_DIR}/tools/instrument-uxplay.py"
+            "${UX}/lib/raop.c" "${UX}/lib/http_request.c" "${UX}/lib/httpd.c")
+    endif()
     add_library(airplay STATIC ${CORE})
+    if(BUILD_DEVELOPMENT_PACKAGE)
+        target_sources(airplay PRIVATE src/direct_request_diag.c)
+        target_include_directories(airplay PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    endif()
     target_compile_definitions(airplay PRIVATE PLIST_210 PLIST_230 OPENSSL_API_COMPAT=0x10101000L _REENTRANT _LARGEFILE64_SOURCE _FILE_OFFSET_BITS=64)
     target_include_directories(airplay PUBLIC "${UX}/lib" PRIVATE "${UX}/lib/llhttp" "${UX}/lib/playfair" "${DEPS}/include")
     target_link_libraries(airplay PUBLIC playfair dnssd llhttp "${DEPS}/lib/libplist-2.0.a" "${DEPS}/lib/libcrypto.a" pthread dl m)

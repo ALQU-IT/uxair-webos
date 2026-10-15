@@ -14,6 +14,10 @@ build/tests/state-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/ui_navigation_test.cpp src/ui_navigation.cpp -o build/tests/ui-navigation-test
 build/tests/ui-navigation-test
+cc -std=c11 -D_POSIX_C_SOURCE=200809L -g -fsanitize=address,undefined -Isrc \
+  tests/direct_request_diag_test.c src/direct_request_diag.c -o build/tests/direct-request-diag-test
+build/tests/direct-request-diag-test
+python3 tests/instrument_uxplay_test.py
 if ! pkg-config --exists sdl2; then
   echo 'SDL2 development files are required for input mapping tests.' >&2
   exit 2

@@ -40,4 +40,4 @@ The fork's [media initialization](../src/media.cpp) explicitly sets `codec.video
 3. For direct SDR video, verify a safe sender/local-only URL model, container/HLS variant and Rockhopper Starfish direct-play API before enabling any AirPlay feature bit. Test H.264 first, then separately HEVC Main/Main10 and 4K.
 4. Pursue HDR10/PQ and HLG only after a metadata-preserving sender-to-decoder-to-panel trace proves bit depth, transfer, primaries, matrix, mastering metadata and output signaling. Keep Dolby Vision a separate investigation.
 
-Phase 4C/4D implementation has deliberately not started.
+The subsequent [4C request probe](MILESTONE4C.md), [4D `/info` experiment](MILESTONE4D.md), and [4E transport/output audit](MILESTONE4E.md) supersede the earlier capture recommendation. Direct photo/video decoding remains disabled.

@@ -88,7 +88,8 @@ int main(void) {
         else {assert(strstr(line,"[direct-probe] method=PUT path=photo"));++records;}
     }
     fclose(capture);
-    assert(records==191 && body_limits==1 && suppressions==1);
+    /* The earlier response marker uses one slot in the process-wide cap. */
+    assert(records==190 && body_limits==1 && suppressions==1);
     puts("PASS: strict HTTP info gate, probe redaction, body limit and 192-record cap");
     return 0;
 }

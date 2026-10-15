@@ -65,6 +65,7 @@ void Shell::transparent() {
 Action Shell::action() {
     SDL_Event e;
     static Uint32 last_motion_log_ms = 0;
+    pointer_select_ = false;
     while (SDL_PollEvent(&e)) {
         const Uint32 now = SDL_GetTicks();
         if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
@@ -84,9 +85,39 @@ Action Shell::action() {
             last_motion_log_ms = now;
         }
         const Action mapped = input_.map(e, now);
-        if (mapped != Action::None) return mapped;
+        if (mapped != Action::None) {
+            if (mapped==Action::Select && e.type==SDL_MOUSEBUTTONDOWN) {
+                pointer_select_=true;pointer_x_=e.button.x;pointer_y_=e.button.y;
+            }
+            return mapped;
+        }
     }
     return interrupted?Action::Exit:Action::None;
+}
+bool Shell::pointer_select(int& x, int& y) const {
+    if (!pointer_select_) return false;
+    x=pointer_x_;y=pointer_y_;return true;
+}
+static int dialog_first(const UiDialog& dialog) {
+    int count=int(dialog.choices.size()),visible=std::min(5,count);
+    return std::max(0,std::min(dialog.selected-2,count-visible));
+}
+UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog) const {
+    int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
+    if(dialog) {
+        int visible=std::min(5,int(dialog->choices.size()));
+        int box_w=std::min(w*68/100,1050),box_h=150+visible*72;
+        int left=(w-box_w)/2,top=(h-box_h)/2;
+        if(x<left || x>=left+box_w || y<top+124 || y>=top+124+visible*72)
+            return {UiHitKind::Cancel,-1};
+        return {UiHitKind::DialogChoice,dialog_first(*dialog)+(y-top-124)/72};
+    }
+    int top=h/4,row_height=std::max(66,h/11),sidebar=w/4;
+    if(x>=0 && x<sidebar && y>=top && y<top+5*row_height)
+        return {UiHitKind::Category,(y-top)/row_height};
+    if(x>=sidebar+24 && x<w-24 && y>=top && y<top+std::min(row_count,7)*row_height)
+        return {UiHitKind::Row,(y-top)/row_height};
+    return {};
 }
 bool Shell::pump() {Action a=action();return a!=Action::Back&&a!=Action::Exit;}
 void Shell::text(const std::string& s,int y,TTF_Font *font,SDL_Color color) {
@@ -107,32 +138,71 @@ void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *fon
     if(texture) { SDL_RenderCopy(renderer,texture,&source,&rect); SDL_DestroyTexture(texture); }
     SDL_FreeSurface(surface);
 }
-void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer) {
+void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer,const UiDialog *dialog) {
     int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
     SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
-    SDL_SetRenderDrawColor(renderer,10,17,28,255);SDL_RenderClear(renderer);
-    SDL_Rect band={0,0,w,std::max(8,h/10)};
-    SDL_SetRenderDrawColor(renderer,17,35,49,255);SDL_RenderFillRect(renderer,&band);
-    const char *titles[]={"UxPlay webOS Dev","Quality settings","Usage statistics","Live diagnostics","Capabilities","Recent sessions"};
+    SDL_SetRenderDrawColor(renderer,8,15,25,255);SDL_RenderClear(renderer);
+    const int sidebar=w/4,panel=sidebar+32;
+    SDL_Rect side={0,0,sidebar,h};
+    SDL_SetRenderDrawColor(renderer,15,30,43,255);SDL_RenderFillRect(renderer,&side);
+    SDL_Rect accent={0,0,w,7};
+    SDL_SetRenderDrawColor(renderer,66,216,177,255);SDL_RenderFillRect(renderer,&accent);
+    const char *categories[]={"Screen Mirroring","Photos & Video","Playback Diagnostics","Usage Statistics","System Settings"};
+    const char *titles[]={"Screen Mirroring","Photos & Video","Playback Diagnostics","Usage Statistics","System Settings","Recent Sessions"};
     int index=int(page_id);if(index<0||index>5)index=0;
-    text_at(titles[index],w/16,h/28,w*7/8,large_,{80,219,180,255});
-    text_at(subtitle,w/16,h/7,w*7/8,font_,{210,226,235,255});
+    int category=index==5?3:index;
+    text_at("UXPLAY",w/28,h/18,sidebar-40,large_,{77,226,185,255});
+    text_at("webOS Dev",w/28,h/8,sidebar-40,small_,{154,185,202,255});
+    text_at(titles[index],panel,h/20,w-panel-35,large_,{239,247,249,255});
+    text_at(subtitle,panel,h/7,w-panel-35,font_,{154,185,202,255});
     const int top=h/4;
-    const int row_height=std::max(68,h/12);
+    const int row_height=std::max(66,h/11);
+    for(int i=0;i<5;++i) {
+        int y=top+i*row_height;
+        if(i==category) {
+            SDL_Rect tab={14,y-5,sidebar-28,row_height-6};
+            SDL_SetRenderDrawColor(renderer,31,67,77,255);SDL_RenderFillRect(renderer,&tab);
+            SDL_Rect marker={14,y-5,6,row_height-6};
+            SDL_SetRenderDrawColor(renderer,77,226,185,255);SDL_RenderFillRect(renderer,&marker);
+        }
+        text_at(categories[i],30,y+12,sidebar-52,font_,i==category?SDL_Color{238,249,247,255}:SDL_Color{150,175,190,255});
+    }
     for(size_t i=0;i<rows.size() && i<7;++i) {
         int y=top+int(i)*row_height;
         if(int(i)==selected) {
-            SDL_Rect focus={w/20,y-7,w*9/10,row_height-5};
-            SDL_SetRenderDrawColor(renderer,33,68,79,255);SDL_RenderFillRect(renderer,&focus);
-            SDL_Rect marker={w/20,y-7,7,row_height-5};
-            SDL_SetRenderDrawColor(renderer,80,219,180,255);SDL_RenderFillRect(renderer,&marker);
+            SDL_Rect focus={panel-8,y-6,w-panel-24,row_height-5};
+            SDL_SetRenderDrawColor(renderer,34,66,76,255);SDL_RenderFillRect(renderer,&focus);
+            SDL_Rect marker={panel-8,y-6,6,row_height-5};
+            SDL_SetRenderDrawColor(renderer,77,226,185,255);SDL_RenderFillRect(renderer,&marker);
         }
         const SDL_Color primary=rows[i].enabled?SDL_Color{242,247,250,255}:SDL_Color{127,145,156,255};
-        text_at(rows[i].label,w/14,y,w*5/10,font_,primary);
-        if(!rows[i].value.empty())text_at(rows[i].value,w*2/3,y,w/4,font_,primary);
-        if(!rows[i].note.empty())text_at(rows[i].note,w/14,y+38,w*4/5,small_,{150,173,187,255});
+        text_at(rows[i].label,panel+18,y+4,(w-panel)*56/100,font_,primary);
+        if(!rows[i].value.empty())text_at(rows[i].value,panel+(w-panel)*65/100,y+4,(w-panel)*30/100,font_,int(i)==selected?SDL_Color{77,226,185,255}:primary);
+        if(!rows[i].note.empty())text_at(rows[i].note,panel+18,y+43,w-panel-60,small_,{151,178,194,255});
     }
-    text_at(footer,w/16,h-62,w*7/8,small_,{152,180,194,255});
+    text_at(footer,panel,h-54,w-panel-35,small_,{152,180,194,255});
+    if(dialog) {
+        SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer,0,5,10,190);
+        SDL_Rect dim={0,0,w,h};SDL_RenderFillRect(renderer,&dim);
+        int visible=std::min(5,int(dialog->choices.size()));
+        int box_w=std::min(w*68/100,1050),box_h=150+visible*72;
+        int left=(w-box_w)/2,dialog_top=(h-box_h)/2;
+        SDL_SetRenderDrawColor(renderer,22,39,52,255);
+        SDL_Rect box={left,dialog_top,box_w,box_h};SDL_RenderFillRect(renderer,&box);
+        text_at(dialog->title,left+32,dialog_top+18,box_w-64,font_,{246,251,251,255});
+        text_at(dialog->description,left+32,dialog_top+68,box_w-64,small_,{164,191,207,255});
+        int first=dialog_first(*dialog);
+        for(int i=0;i<visible;++i) {
+            int option=first+i,y=dialog_top+124+i*72;
+            if(option==dialog->selected) {
+                SDL_Rect selected_row={left+20,y-3,box_w-40,67};
+                SDL_SetRenderDrawColor(renderer,43,83,91,255);SDL_RenderFillRect(renderer,&selected_row);
+            }
+            text_at(dialog->choices[option],left+42,y+12,box_w-120,font_,option==dialog->selected?SDL_Color{247,253,250,255}:SDL_Color{184,205,216,255});
+            if(option==dialog->current)text_at("✓",left+box_w-94,y+12,60,small_,{77,226,185,255});
+        }
+    }
     SDL_RenderPresent(renderer);
 }
 void Shell::overlay(const std::vector<std::string>& lines) {

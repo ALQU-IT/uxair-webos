@@ -52,6 +52,15 @@ int main() {
     Shell shell;if(!shell.open())return 1;
     shell.screen("Starting AirPlay receiver","");
     const std::string state_dir=app_directory()+"/state";
+    std::string build_commit="Unknown",build_version="Unknown";
+    {
+        std::ifstream build_info((app_directory()+"/build-info.txt").c_str());
+        std::string line;
+        while(std::getline(build_info,line)) {
+            if(line.compare(0,7,"commit=")==0)build_commit=line.substr(7,12);
+            if(line.compare(0,8,"version=")==0)build_version=line.substr(8);
+        }
+    }
     Settings settings;
     if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d hdr=%s diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.hdr==HdrPolicy::Sdr?"SDR":"Auto (SDR fallback)",diagnostics_mode_name(settings.diagnostics));
     UsageStats usage;
@@ -82,9 +91,10 @@ int main() {
     };
     const char *app_id=getenv("APPID");if(!app_id)app_id=UXPLAY_APP_ID;
     Media media;AudioDecoder decoder;
-    UiPage page=UiPage::Home;
-    int focus=0;
-    bool reset_armed=false, session_success=false;
+    UiNavigation nav;
+    UiPage& page=nav.page;
+    int& focus=nav.focus;
+    bool ui_visible=true,session_success=false;
     uint64_t session_started_utc=0, ingress_at_start=0, drops_at_start=0,video_drops_at_start=0,hardware_decoder_errors=0;
     int observed_width=0,observed_height=0;
     double live_incoming_fps=0,live_feed_fps=0,live_pts_fps=0,live_queue_ms=0,live_feed_ms=0;
@@ -139,8 +149,7 @@ int main() {
         media.close();decoder.reset();receiver.disconnect();opened=false;have_pending=false;
         origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;
         session_success=false;session_started_utc=0;observed_width=observed_height=0;hardware_decoder_errors=0;
-        if(page!=UiPage::Home)page=UiPage::Home;
-        focus=0;reset_armed=false;
+        nav=UiNavigation();ui_visible=true;
         video_feed_timing.reset();video_parse_time.reset();video_schedule_late.reset();video_pending_time.reset();
         video_feed_time.reset();audio_feed_time.reset();media_tick_time.reset();
         width=settings.width;height=settings.height;
@@ -156,21 +165,18 @@ int main() {
     };
     auto rows_for=[&](UiPage which)->std::vector<UiRow> {
         std::vector<UiRow> rows;
-        if(which==UiPage::Home) {
-            rows.push_back(UiRow("Quality settings","Open",std::string(settings.width==1920?"1080p experimental":"720p proven")+" / 30 FPS"));
-            rows.push_back(UiRow("Usage statistics","Open","Local playback history only"));
-            rows.push_back(UiRow("Live diagnostics","Open","Incoming and feed rates; displayed FPS unavailable"));
-            rows.push_back(UiRow("Capabilities","Open","Protocol, 4K, HDR and direct-media status"));
-            rows.push_back(UiRow("Audio delay",std::to_string(receiver.audio_delay_ms.load())+" ms","Left / Right adjusts before playback"));
-        } else if(which==UiPage::Settings) {
-            bool selectable=receiver.idle_for_profile_change();
-            rows.push_back(UiRow("720p / 30 FPS",settings.width==1280?"Selected":"Choose","Known-good recovery profile; reconnect sender",selectable));
-            rows.push_back(UiRow("1080p / 30 FPS",settings.width==1920?"Selected":"Try","Experimental on B7; reconnect and check actual SPS",selectable));
-            rows.push_back(UiRow("4K","Unavailable","HEVC and 4K buffers are not implemented",false));
-            rows.push_back(UiRow("Frame rate","30 FPS","Sender maximum; actual input shown in diagnostics"));
-            rows.push_back(UiRow("60 FPS","Locked","Needs separate sender and B7 tests",false));
-            rows.push_back(UiRow("HDR policy",settings.hdr==HdrPolicy::Auto?"Auto":"SDR","Auto currently uses SDR; no verified HDR path"));
-            rows.push_back(UiRow("Stats overlay",diagnostics_mode_name(settings.diagnostics),"SDL layer above hardware video is unverified"));
+        if(which==UiPage::Mirroring) {
+            rows.push_back(UiRow("Resolution",settings.width==1920?"1080p / 30":"720p / 30","Change takes effect after sender reconnect",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Maximum frame rate","30 FPS","60 FPS is not validated on this receiver",false));
+            rows.push_back(UiRow("Actual incoming SPS",observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting video","Source dimensions, not the TV window size",false));
+            rows.push_back(UiRow("AirPlay receiver",receiver.status(),"H.264 screen mirroring; 720p is the recovery profile",false));
+        } else if(which==UiPage::Media) {
+            rows.push_back(UiRow("Direct photos","Unavailable","Photos shown through screen mirroring still work",false));
+            rows.push_back(UiRow("Direct video","Unavailable","HLS and Photos direct-video handling are not enabled",false));
+            rows.push_back(UiRow("Preferred quality","Auto","No independent direct-media quality modes yet",false));
+            rows.push_back(UiRow("HDR policy",settings.hdr==HdrPolicy::Auto?"Auto":"SDR","Auto currently falls back to SDR"));
+            rows.push_back(UiRow("HEVC / 4K","Unavailable","Requires verified protocol and decoder paths",false));
+            rows.push_back(UiRow("HDR10 / HLG / Dolby Vision","Unavailable","Color metadata and output signaling are unverified",false));
         } else if(which==UiPage::Statistics) {
             rows.push_back(UiRow("Total playback",duration_text(usage.playback_ms),"Counted after Starfish begins playing"));
             rows.push_back(UiRow("Successful sessions",std::to_string(usage.successful_sessions),"Mirror "+std::to_string(usage.mirror_sessions)+"  Audio "+std::to_string(usage.audio_sessions)+"  Direct "+std::to_string(usage.direct_sessions)));
@@ -179,16 +185,16 @@ int main() {
             double hours=usage.playback_ms/3600000.0;
             rows.push_back(UiRow("Lifetime input / feed",hours>0?fmt("%.1f",usage.incoming_frames/(hours*3600))+" / "+fmt("%.1f",usage.feed_frames/(hours*3600))+" FPS":"No data","Averages include still-image periods; not displayed FPS"));
             rows.push_back(UiRow("Frame / packet drops",std::to_string(usage.video_frame_drops)+" / "+std::to_string(usage.packet_drops),"Decode errors "+std::to_string(usage.decoder_errors)+"  Session errors "+std::to_string(usage.session_errors)));
-            rows.push_back(UiRow(reset_armed?"Press OK again to reset":"Reset usage history","Local only","Pairing and receiver identity are retained"));
+            rows.push_back(UiRow("Reset usage history","Confirm","Pairing and receiver identity are retained"));
         } else if(which==UiPage::Diagnostics) {
+            rows.push_back(UiRow("On-screen overlay",diagnostics_mode_name(settings.diagnostics),"Off, Compact or Detailed"));
             std::string resolution=observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting SPS";
             rows.push_back(UiRow("Incoming SPS",resolution,"Advertised "+std::to_string(settings.width)+" x "+std::to_string(settings.height)+" / 30; H.264 SDR"));
             rows.push_back(UiRow("Incoming / feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),"One-second callback and accepted-feed windows"));
             rows.push_back(UiRow("Source PTS / display FPS",fmt("%.1f",live_pts_fps)+" / N/A","FRAMEREADY is throttled, not panel presentation"));
             rows.push_back(UiRow("Video / audio queue",std::to_string(live_queue.video_queue_packets)+" / "+std::to_string(live_queue.queue_packets-live_queue.video_queue_packets),"Video queue residence "+fmt("%.1f",live_queue_ms)+" ms, last 5s"));
             rows.push_back(UiRow("Starfish feed",fmt("%.1f",live_feed_ms)+" ms","Average video Feed call, last 5s; not decode latency"));
-            rows.push_back(UiRow("Audio",std::string(audio_codec_name(receiver.last_audio_codec.load()))+" -> PCM 44.1k","Stereo output; source sample rate not verified"));
-            rows.push_back(UiRow("Session / memory",session_started?duration_text(uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000):"Idle",live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB RSS":"RSS unavailable"));
+            rows.push_back(UiRow("Session / memory",session_started?duration_text(uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000):"Idle",(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB RSS":"RSS unavailable")+"  Audio "+audio_codec_name(receiver.last_audio_codec.load())+" -> PCM"));
         } else if(which==UiPage::History) {
             for(size_t i=0;i<usage.recent.size() && i<7;++i) {
                 const SessionSummary& s=usage.recent[i];
@@ -198,16 +204,55 @@ int main() {
                     "  input/feed "+fmt("%.1f",seconds?s.incoming_frames/seconds:0)+"/"+fmt("%.1f",seconds?s.feed_frames/seconds:0)+" FPS"));
             }
             if(rows.empty())rows.push_back(UiRow("No completed sessions yet","","Playback history stays on this TV"));
-        } else {
-            rows.push_back(UiRow("Screen Mirroring",settings.width==1920?"H.264 1080p/30 exp":"H.264 720p/30","720p working on B7; 1080p unverified"));
-            rows.push_back(UiRow("AirPlay 2","Partial","Modern sender interop is not full AirPlay 2"));
-            rows.push_back(UiRow("Standalone audio","Unavailable","Audio currently plays with mirroring only",false));
-            rows.push_back(UiRow("Direct photos / video","Unavailable","Photos through mirroring work; HLS is off",false));
-            rows.push_back(UiRow("1080p / 60 FPS","Unavailable","1080p/30 is experimental; 60 FPS remains locked",false));
-            rows.push_back(UiRow("HEVC / 4K / HDR","Unavailable","No verified codec and color metadata path",false));
-            rows.push_back(UiRow("Presented FPS","Unavailable","TV callback is throttled, not frame presentation",false));
+        } else if(which==UiPage::System) {
+            rows.push_back(UiRow("Audio delay",std::to_string(receiver.audio_delay_ms.load())+" ms","Set before connecting; step size 25 ms",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Application version",build_version,"Source commit "+build_commit,false));
+            rows.push_back(UiRow("Receiver",receiver.status(),"Pairing and receiver identity are stored privately",false));
+            rows.push_back(UiRow("Logs","uxplay.log","Previous session: uxplay.log.previous",false));
+            rows.push_back(UiRow("Recovery","Select 720p","Reconnect sender after changing resolution",false));
         }
         return rows;
+    };
+    auto dialog_for=[&]()->UiDialog {
+        UiDialog d;d.selected=nav.choice;
+        switch(nav.dialog) {
+            case UiDialogKind::Resolution:
+                d.current=settings.width==1920?1:0;
+                d.title="Screen mirroring resolution";d.description="Disconnect sender first. Reconnect after applying.";
+                d.choices={"720p / 30 FPS  -  safe fallback","1080p / 30 FPS  -  tested on B7"};break;
+            case UiDialogKind::Hdr:
+                d.current=settings.hdr==HdrPolicy::Sdr?1:0;
+                d.title="HDR policy";d.description="True HDR is not available; Auto uses SDR.";
+                d.choices={"Auto (SDR fallback)","SDR only"};break;
+            case UiDialogKind::Overlay:
+                d.current=int(settings.diagnostics);
+                d.title="Playback diagnostics overlay";d.description="Incoming and feed FPS are not displayed FPS.";
+                d.choices={"Off","Compact","Detailed"};break;
+            case UiDialogKind::AudioDelay:
+                d.current=(receiver.audio_delay_ms.load()+1000)/25;
+                d.title="Audio delay";d.description="Choose before connecting; 25 ms steps.";
+                for(int ms=-1000;ms<=1000;ms+=25)d.choices.push_back(std::to_string(ms)+" ms");break;
+            case UiDialogKind::ResetHistory:
+                d.title="Reset usage history?";d.description="This keeps pairing and receiver identity.";
+                d.choices={"Cancel","Reset local history"};break;
+            default:break;
+        }
+        return d;
+    };
+    auto apply_resolution=[&](int target) {
+        if(!receiver.idle_for_profile_change()) {receiver.show("Disconnect sender before changing quality.");return;}
+        const Settings previous=settings;
+        ProfileSwitchResult result=switch_mirror_profile(settings,target,target==1920?1080:720,activate_profile);
+        if(result==ProfileSwitchResult::Applied) {
+            if(save_settings(state_dir+"/settings-v1",settings))
+                receiver.show(std::string(target==1920?"1080p":"720p")+" advertised. Reconnect sender; check incoming SPS.");
+            else {
+                fprintf(stderr,"[settings] save failed; restoring previous receiver profile\n");
+                bool restored=activate_profile(previous);settings=previous;
+                receiver.show(restored?"Could not save quality; previous profile restored.":"Quality save and recovery failed. Restart app.");
+            }
+        } else if(result==ProfileSwitchResult::Recovered) receiver.show("Quality start failed; previous profile restored.");
+        else if(result==ProfileSwitchResult::Unavailable) receiver.show("Receiver unavailable. Restart app to recover.");
     };
     bool running=true;
     while(running) {
@@ -216,57 +261,65 @@ int main() {
         previous_loop=now;
         Action action=shell.action();
         if(action==Action::Exit)break;
-        if(action==Action::Back) {
-            if(page!=UiPage::Home) {page=page==UiPage::History?UiPage::Statistics:UiPage::Home;focus=0;reset_armed=false;last_ui=0;if(opened)shell.transparent();}
-            else if(opened||receiver.mirror||!receiver.pin().empty())finish();else break;
+        if(opened && !ui_visible && action==Action::Select) {
+            ui_visible=true;nav.category(2);action=Action::None;last_ui=0;
         }
-        if(action==Action::Up||action==Action::Down) {
-            int count=int(rows_for(page).size());
-            focus=(focus+(action==Action::Down?1:count-1))%count;
-            reset_armed=false;last_ui=0;
-        }
-        if(action==Action::Select) {
-            if(page==UiPage::Home) {
-                if(opened)page=UiPage::Diagnostics;
-                else if(focus==0)page=UiPage::Settings;
-                else if(focus==1)page=UiPage::Statistics;
-                else if(focus==2)page=UiPage::Diagnostics;
-                else if(focus==3)page=UiPage::Capabilities;
-                focus=0;last_ui=0;
-            } else if(page==UiPage::Statistics && focus==3) {
-                page=UiPage::History;focus=0;last_ui=0;
-            } else if(page==UiPage::Statistics && focus==6 && !opened) {
-                if(reset_armed) {usage.reset();if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] reset save failed\n");reset_armed=false;}
-                else reset_armed=true;
+        if(action==Action::Select && ui_visible) {
+            int x,y;
+            if(shell.pointer_select(x,y)) {
+                UiDialog d=dialog_for();
+                UiHit hit=shell.hit_test(x,y,int(rows_for(page).size()),nav.dialog==UiDialogKind::None?nullptr:&d);
+                if(hit.kind==UiHitKind::Category) {nav.category(hit.index);action=Action::None;}
+                else if(hit.kind==UiHitKind::Row) focus=hit.index;
+                else if(hit.kind==UiHitKind::DialogChoice) nav.choice=hit.index;
+                else if(hit.kind==UiHitKind::Cancel) {nav.back();action=Action::None;}
+                else action=Action::None;
                 last_ui=0;
             }
         }
-        if(page==UiPage::Settings && !opened && (action==Action::Left||action==Action::Right||action==Action::Select)) {
-            bool changed=false;
-            if(focus==0 || focus==1) {
-                if(receiver.idle_for_profile_change()) {
-                    const int target=action==Action::Left?1280:action==Action::Right?1920:focus==0?1280:1920;
-                    const Settings previous=settings;
-                    ProfileSwitchResult result=switch_mirror_profile(settings,target,target==1920?1080:720,activate_profile);
-                    if(result==ProfileSwitchResult::Applied) {
-                        if(save_settings(state_dir+"/settings-v1",settings))
-                            receiver.show(std::string(target==1920?"1080p experimental":"720p")+" advertised. Reconnect sender; check incoming SPS.");
-                        else {
-                            fprintf(stderr,"[settings] save failed; restoring previous receiver profile\n");
-                            bool restored=activate_profile(previous);settings=previous;
-                            receiver.show(restored?"Could not save quality; previous profile restored.":"Quality save and recovery failed. Restart app.");
-                        }
-                    } else if(result==ProfileSwitchResult::Recovered) receiver.show("Quality start failed; previous profile restored.");
-                    else if(result==ProfileSwitchResult::Unavailable) receiver.show("Receiver unavailable. Restart app to recover.");
-                    last_ui=0;
-                } else receiver.show("Disconnect sender before changing quality.");
-            }
-            if(focus==5) {settings.hdr=settings.hdr==HdrPolicy::Auto?HdrPolicy::Sdr:HdrPolicy::Auto;changed=true;}
-            if(focus==6) {int mode=int(settings.diagnostics);mode=(mode+(action==Action::Left?2:1))%3;settings.diagnostics=DiagnosticsMode(mode);changed=true;}
-            if(changed) {if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");last_ui=0;}
+        if(action==Action::Back) {
+            if(ui_visible && nav.back()) {last_ui=0;}
+            else if(opened && ui_visible) {ui_visible=false;shell.transparent();last_ui=0;}
+            else if(opened||receiver.mirror||!receiver.pin().empty())finish();
+            else break;
         }
-        if(!opened&&page==UiPage::Home&&(action==Action::Left||action==Action::Right)) {
-            receiver.adjust_audio_delay(action==Action::Right?25:-25);last_ui=0;
+        if(ui_visible && (action==Action::Up||action==Action::Down)) {
+            int delta=action==Action::Down?1:-1;
+            if(nav.dialog==UiDialogKind::None)nav.move_row(delta,int(rows_for(page).size()));
+            else nav.move_choice(delta,int(dialog_for().choices.size()));
+            last_ui=0;
+        }
+        if(ui_visible && (action==Action::Left||action==Action::Right) && nav.dialog==UiDialogKind::None) {
+            nav.move_category(action==Action::Right?1:-1);last_ui=0;
+        }
+        if(ui_visible && action==Action::Select) {
+            if(nav.dialog!=UiDialogKind::None) {
+                UiDialogKind kind=nav.dialog;
+                int choice=nav.confirm();
+                if(kind==UiDialogKind::Resolution && choice>=0 && choice<=1)apply_resolution(choice?1920:1280);
+                else if(kind==UiDialogKind::Hdr && choice>=0 && choice<=1) {
+                    settings.hdr=choice?HdrPolicy::Sdr:HdrPolicy::Auto;
+                    if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");
+                } else if(kind==UiDialogKind::Overlay && choice>=0 && choice<=2) {
+                    settings.diagnostics=DiagnosticsMode(choice);
+                    if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");
+                } else if(kind==UiDialogKind::AudioDelay && choice>=0 && choice<=80 && receiver.idle_for_profile_change())
+                    receiver.adjust_audio_delay(choice*25-1000-receiver.audio_delay_ms.load());
+                else if(kind==UiDialogKind::ResetHistory && choice==1) {
+                    usage.reset();if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] reset save failed\n");
+                }
+            } else {
+                const std::vector<UiRow> rows=rows_for(page);
+                if(focus>=0 && focus<int(rows.size()) && rows[focus].enabled) {
+                    if(page==UiPage::Mirroring && focus==0)nav.begin(UiDialogKind::Resolution,settings.width==1920?1:0);
+                    else if(page==UiPage::Media && focus==3)nav.begin(UiDialogKind::Hdr,settings.hdr==HdrPolicy::Sdr?1:0);
+                    else if(page==UiPage::Diagnostics && focus==0)nav.begin(UiDialogKind::Overlay,int(settings.diagnostics));
+                    else if(page==UiPage::Statistics && focus==3) {page=UiPage::History;focus=0;}
+                    else if(page==UiPage::Statistics && focus==6)nav.begin(UiDialogKind::ResetHistory,0);
+                    else if(page==UiPage::System && focus==0)nav.begin(UiDialogKind::AudioDelay,(receiver.audio_delay_ms.load()+1000)/25);
+                }
+            }
+            last_ui=0;
         }
         if(receiver.reset.exchange(false))finish(true);
         if(receiver.activity && now-receiver.activity>20000000000LL && (opened||receiver.mirror)) {
@@ -295,7 +348,8 @@ int main() {
         }
         if(!opened && now-last_ui>500000000) {
             std::string subtitle=receiver.pin().empty()?receiver.status():"Pairing PIN: "+receiver.pin();
-            shell.page(page,subtitle,rows_for(page),focus,page==UiPage::Home?"Up/Down navigate  •  OK open  •  Left/Right audio delay  •  Back exit":"Up/Down navigate  •  OK select  •  Back home");
+            UiDialog d=dialog_for();
+            shell.page(page,subtitle,rows_for(page),focus,"Left/Right sections  •  Up/Down focus  •  OK select  •  Back cancel",nav.dialog==UiDialogKind::None?nullptr:&d);
             last_ui=now;
         }
         if(now-last_live>1000000000LL) {
@@ -307,8 +361,9 @@ int main() {
             live_ingress_last=ingress;live_feed_last=feed;
             live_queue=receiver.queue_snapshot();live_rss_kb=process_rss_kb();last_live=now;
             if(opened) {
-                if(page!=UiPage::Home) {
-                    shell.page(page,"Live session  •  Press Back to return to playback",rows_for(page),focus,"Incoming and Feed are receiver rates  •  Displayed FPS unavailable");
+                if(ui_visible) {
+                    UiDialog d=dialog_for();
+                    shell.page(page,"Live session  •  Back returns to playback",rows_for(page),focus,"Incoming and Feed are receiver rates  •  Displayed FPS unavailable",nav.dialog==UiDialogKind::None?nullptr:&d);
                 } else if(settings.diagnostics!=DiagnosticsMode::Off) {
                     std::vector<std::string> lines;
                     lines.push_back(std::string("H.264 SPS ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"pending")+"  advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height));
@@ -418,7 +473,7 @@ int main() {
             video_count=audio_count=decode_errors=late_audio=silence_blocks=invalid_video=0;
             audio_decode_calls=audio_decode_ns=audio_decode_max_ns=0;
             last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
-            shell.transparent();
+            ui_visible=false;shell.transparent();
             fprintf(stderr,"[session] %dx%d audio=%d\n",width,height,int(receiver.has_audio));
         }
         int64_t pts=pending.timestamp>=origin ? int64_t(pending.timestamp-origin) : -int64_t(origin-pending.timestamp);

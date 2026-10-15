@@ -4,6 +4,7 @@ import argparse
 import io
 import json
 import pathlib
+import re
 import tarfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -69,6 +70,9 @@ def main():
             fail('packaged appinfo differs from staged metadata')
         if not content('uxplay-webos') or not content('lib/libstdc++.so.6'):
             fail('missing receiver or private C++ runtime')
+        build_info = content('build-info.txt').decode('ascii')
+        if not re.fullmatch(r'version=[^\n]+\ncommit=[0-9a-f]{40}\n', build_info):
+            fail('missing valid source commit metadata')
         forbidden = {'paired.keys', 'server.key', 'device.id', 'uxplay.log', 'audio-delay-ms'}
         if any('state' in pathlib.PurePosixPath(name).parts or pathlib.PurePosixPath(name).name in forbidden for name in files):
             fail('private pairing, settings, or log file included')

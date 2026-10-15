@@ -27,6 +27,8 @@ def main():
         app['id'] += '.dev'
         app['title'] += ' Dev'
     (stage / 'appinfo.json').write_text(json.dumps(app, indent=2) + '\n')
+    source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    (stage / 'build-info.txt').write_text(f'version={app["version"]}\ncommit={source_commit}\n')
     shutil.copy2(ROOT / 'packaging/icon.png', stage / 'icon.png')
     shutil.copy2(ROOT / 'build/uxplay-webos', stage / 'uxplay-webos')
     shutil.copy2(SDK / 'arm-webos-linux-gnueabi/sysroot/usr/lib/libstdc++.so.6', stage / 'lib/libstdc++.so.6')

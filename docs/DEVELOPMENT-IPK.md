@@ -33,3 +33,5 @@ These are manual steps for the TV owner. No CI job connects to a TV.
 3. If it fails to launch or play correctly, close **UxPlay webOS Dev** in Dev Manager, uninstall only `com.github.danlflh.uxplaywebos.dev`, and relaunch the original **UxPlay webOS** app. This leaves the original app ID and its pairing state in place. Keep a copy of the known-good production IPK as an additional recovery option; do not uninstall the original app while testing.
 
 The owner has tested a previous development package on the LG OLED B7 with Rockhopper 3.9.0, confirming 1080p/30 H.264 mirroring with actual 1920×1080 SPS, no reported drops, Magic Remote OK and the playback overlay. Each newly built UI package still needs the [Milestone 4 TV procedure](MILESTONE4.md); a passing build and ELF check do not establish its runtime behavior.
+
+The current development package adds a temporary, metadata-only [direct-media request probe](MILESTONE4C.md). It leaves HLS and direct playback disabled. Follow the separate four-case capture procedure there and share only extracted probe markers.

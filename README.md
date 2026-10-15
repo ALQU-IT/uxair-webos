@@ -31,6 +31,7 @@ On the TV, open **UxPlay webOS**. Start Screen Mirroring from an iPhone, iPad, o
 - During playback, OK opens the diagnostics page; Back hides it, then Back again disconnects. Back from the idle Screen Mirroring section, or Exit, closes the app.
 - One transmitting device is accepted at a time.
 - The development app has five settings sections, local usage statistics and diagnostics. See [Milestone 4 controls and TV validation](docs/MILESTONE4.md). Direct media, 4K, HEVC and HDR remain unavailable.
+- The current development package includes a bounded, metadata-only [direct-media request probe](docs/MILESTONE4C.md) to identify iPhone Photos behavior. It does not enable direct playback or change advertised capabilities.
 
 For direct SSH helpers, explicitly set the connection details—no personal network, TV alias, or key path is embedded:
 

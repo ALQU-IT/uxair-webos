@@ -35,7 +35,7 @@ The fork's [media initialization](../src/media.cpp) explicitly sets `codec.video
 
 ## Recommended next work, after 4B review
 
-1. Capture **sanitized** request metadata from actual iPhone Photos photo and video shares, separately from Screen Mirroring, without advertising new features. Determine whether each starts an HTTP photo upload, `/play`, or another route and what resolution/codec is supplied.
+1. Use the temporary [Milestone 4C request probe](MILESTONE4C.md) to capture **sanitized** request metadata from actual iPhone Photos photo and video shares, separately from Screen Mirroring, without advertising new features. Determine whether each starts an HTTP photo upload, `/play`, or another route. The probe cannot establish transmitted resolution or codec by itself.
 2. Prototype one bounded direct-photo receive/decode/display path only if the trace proves a suitable protocol. Test 4K source pixels and actual display resolution independently, with malformed input limits and no change to mirroring.
 3. For direct SDR video, verify a safe sender/local-only URL model, container/HLS variant and Rockhopper Starfish direct-play API before enabling any AirPlay feature bit. Test H.264 first, then separately HEVC Main/Main10 and 4K.
 4. Pursue HDR10/PQ and HLG only after a metadata-preserving sender-to-decoder-to-panel trace proves bit depth, transfer, primaries, matrix, mastering metadata and output signaling. Keep Dolby Vision a separate investigation.

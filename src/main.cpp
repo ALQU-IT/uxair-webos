@@ -278,8 +278,9 @@ int main() {
             }
         }
         if(action==Action::Back) {
-            if(ui_visible && nav.back()) {last_ui=0;}
+            if(ui_visible && nav.dialog!=UiDialogKind::None) {nav.back();last_ui=0;}
             else if(opened && ui_visible) {ui_visible=false;shell.transparent();last_ui=0;}
+            else if(ui_visible && nav.back()) {last_ui=0;}
             else if(opened||receiver.mirror||!receiver.pin().empty())finish();
             else break;
         }

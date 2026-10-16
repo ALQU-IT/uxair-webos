@@ -20,7 +20,10 @@ def version(v):
 
 def main():
     stage = pathlib.Path(sys.argv[1])
-    files = [stage / 'uxplay-webos', stage / 'lib/libstdc++.so.6']
+    binary = sys.argv[2] if len(sys.argv) > 2 else 'uxplay-webos'
+    if binary not in ('uxplay-webos', 'hevc-probe'):
+        sys.exit('Unsupported binary name')
+    files = [stage / binary, stage / 'lib/libstdc++.so.6']
     exported = output('-V', files[1]).split('Version needs section')[0]
     max_glibc = (0, 0)
     for file in files:

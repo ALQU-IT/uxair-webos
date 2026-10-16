@@ -1,0 +1,10 @@
+{
+  "id": "com.github.danlflh.uxplaywebos.hevcprobe",
+  "version": "0.1.0",
+  "vendor": "UxPlay webOS",
+  "type": "native",
+  "main": "hevc-probe",
+  "title": "HEVC Hardware Probe",
+  "icon": "icon.png",
+  "requiredMemory": 64
+}

@@ -1,0 +1,67 @@
+name: Build isolated ARMv7 HEVC probe
+
+on:
+  push:
+    branches:
+      - feature/b7-optimization
+    paths:
+      - '.github/workflows/hevc-probe-ipk.yml'
+      - 'src/hevc_probe.cpp'
+      - 'src/hevc_sample.*'
+      - 'tests/hevc_sample_test.cpp'
+      - 'tools/*hevc*'
+      - 'tools/verify-elf.py'
+      - 'CMakeLists.txt'
+      - 'packaging/hevc-probe-appinfo.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install sample encoder and compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential ffmpeg
+      - name: Sanitizer-backed sample validation
+        run: tools/test-hevc-probe.sh
+  build-ipk:
+    needs: native-tests
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify Apple Silicon host
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+      - name: Install build and sample tools
+        run: |
+          brew install cmake ninja pkgconf ffmpeg
+          npm install --global @webos-tools/cli@3.2.6
+          command -v ares-package
+          ffmpeg -hide_banner -encoders | grep -F libx265
+      - name: Cross-compile and package isolated probe
+        run: tools/build-hevc-probe.sh
+      - name: Verify ABI and package isolation
+        run: |
+          python3 tools/verify-elf.py build/hevc-app hevc-probe | tee dist/hevc-probe/ELF_REPORT.txt
+          python3 tools/validate-hevc-probe-ipk.py
+          (cd dist/hevc-probe && shasum -a 256 -c SHA256SUMS)
+          cat dist/hevc-probe/BUILD_COMMIT.txt dist/hevc-probe/SHA256SUMS dist/hevc-probe/ELF_REPORT.txt
+      - name: Upload verified probe and sample files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hevc-probe-armv7-${{ github.sha }}
+          path: dist/hevc-probe/*
+          if-no-files-found: error
+          retention-days: 14

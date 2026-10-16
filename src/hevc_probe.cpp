@@ -34,10 +34,15 @@ int rss_kib() {
 }
 std::string self_dir() {
     char path[4096]; ssize_t n=readlink("/proc/self/exe",path,sizeof(path)-1);
-    if (n<1) return ""; path[n]=0; std::string s(path); return s.substr(0,s.rfind('/'));
+    if (n<1) return "";
+    path[n]=0;
+    std::string s(path);
+    return s.substr(0,s.rfind('/'));
 }
 int dimension(const char *s,const char *key) {
-    if (!s) return 0; const char *p=strstr(s,key); if (!p) return 0;
+    if (!s) return 0;
+    const char *p=strstr(s,key);
+    if (!p) return 0;
     p += strlen(key); char *end=nullptr; long n=strtol(p,&end,10);
     return end!=p && n>0 && n<=8192 ? int(n) : 0;
 }
@@ -195,28 +200,27 @@ int main(int argc,char **argv) {
         fprintf(stderr,"[hevc-probe] sdl-canvas=%dx%d (not output-plane resolution)\n",mode.w,mode.h);
         Player player;
         if (!player.open(width,height,mode.w,mode.h)) break;
-        int64_t deadline=now_ms()+8000;
-        while (!player.events.loaded && !player.events.failed && !stop_requested && now_ms()<deadline) {
-            SDL_PumpEvents(); SDL_Delay(10);
-        }
-        if (!player.events.loaded || player.events.failed || stop_requested) {
-            fprintf(stderr,"[hevc-probe] load-event-timeout-or-error\n"); break;
-        }
-        player.tick();
-        bool play_request=false; deadline=now_ms()+5000;
-        while (!player.events.playing && !player.events.failed && !stop_requested && now_ms()<deadline) {
-            if (!play_request) { int64_t t=now_ms(); play_request=player.api->Play();
-                fprintf(stderr,"[hevc-probe] play-return accepted=%d ms=%lld\n",play_request,(long long)(now_ms()-t)); }
-            player.tick(); SDL_PumpEvents(); SDL_Delay(10);
-        }
-        if (!player.events.playing || player.events.failed || stop_requested) {
-            fprintf(stderr,"[hevc-probe] play-event-timeout-or-error\n"); break;
-        }
-        player.tick();
+        const int64_t load_deadline=now_ms()+8000;
+        int64_t play_deadline=0,next_play_ms=0;
+        unsigned play_attempts=0;
+        bool play_request=false;
+        auto progress=[&]() {
+            SDL_PumpEvents(); player.tick();
+            if (player.events.loaded && !play_deadline) play_deadline=now_ms()+5000;
+            if (player.events.loaded && !play_request && play_attempts<10 && now_ms()>=next_play_ms) {
+                ++play_attempts;
+                const int64_t t=now_ms(); play_request=player.api->Play();
+                fprintf(stderr,"[hevc-probe] play-return attempt=%u accepted=%d ms=%lld\n",
+                        play_attempts,play_request,(long long)(now_ms()-t));
+                next_play_ms=now_ms()+100;
+            }
+        };
         const unsigned initial_frames=player.events.frame_ready.load();
         unsigned accepted=0,retries=0; int64_t start=now_ms();
         for (size_t i=0;i<sample.units.size() && !player.events.failed && !stop_requested;++i) {
-            while (!stop_requested && now_ms()<start+int64_t(i)*1000/30) { SDL_PumpEvents(); SDL_Delay(2); }
+            while (!stop_requested && now_ms()<start+int64_t(i)*1000/30) { progress(); SDL_Delay(2); }
+            progress();
+            if (!player.events.loaded && now_ms()>=load_deadline) break;
             const hevc_probe::AccessUnit& au=sample.units[i];
             char payload[192]; snprintf(payload,sizeof(payload),
                 "{\"bufferAddr\":\"%p\",\"bufferSize\":%zu,\"pts\":%lld,\"esData\":1}",
@@ -228,15 +232,27 @@ int main(int argc,char **argv) {
                 if (reply.find("Ok")!=std::string::npos) { ++accepted; fed=true;
                     fprintf(stderr,"[hevc-probe] feed frame=%zu accepted=1 bytes=%zu ms=%lld\n",i,au.size,(long long)elapsed); break; }
                 if (reply.find("BufferFull")!=std::string::npos || reply.find("Pending")!=std::string::npos) {
-                    ++retries; SDL_Delay(20); continue;
+                    ++retries; progress(); SDL_Delay(20); continue;
                 }
                 fprintf(stderr,"[hevc-probe] feed frame=%zu rejected=1 ms=%lld\n",i,(long long)elapsed); break;
             }
             if (!fed) { fprintf(stderr,"[hevc-probe] feed-failed frame=%zu retries=%u\n",i,retries); break; }
         }
-        player.api->pushEOS(); deadline=now_ms()+5000;
+        if (accepted==sample.units.size()) {
+            while (!player.events.playing && !player.events.failed && !stop_requested) {
+                progress();
+                if ((!player.events.loaded && now_ms()>=load_deadline) ||
+                    (player.events.loaded && now_ms()>=play_deadline)) break;
+                SDL_Delay(10);
+            }
+        }
+        if (!player.events.loaded) fprintf(stderr,"[hevc-probe] load-event-timeout-or-error\n");
+        if (!player.events.playing) fprintf(stderr,"[hevc-probe] play-event-timeout-or-error\n");
+        const bool eos_accepted=player.api->pushEOS();
+        fprintf(stderr,"[hevc-probe] eos-accepted=%d\n",eos_accepted);
+        int64_t deadline=now_ms()+5000;
         while (!stop_requested && !player.events.failed && now_ms()<deadline) {
-            player.tick(); SDL_PumpEvents(); SDL_Delay(20);
+            progress(); SDL_Delay(20);
         }
         fprintf(stderr,"[hevc-probe] result input_accepted=%u/%zu retries=%u frame_ready_events=%u "
             "video_info=%dx%d acb_window=%dx%d errors=%u rss_kib=%d\n",accepted,sample.units.size(),retries,
@@ -244,13 +260,16 @@ int main(int argc,char **argv) {
             mode.w,mode.h,player.events.errors.load(),rss_kib());
         fprintf(stderr,"[hevc-probe] evidence: Feed acceptance is input only; FRAMEREADY is a firmware callback; "
             "ACB window is requested geometry; native output-plane resolution remains unmeasured\n");
-        const bool pass=!stop_requested && !player.events.failed && accepted==sample.units.size() &&
+        const bool pass=!stop_requested && !player.events.failed && player.events.loaded &&
+            player.events.playing && accepted==sample.units.size() &&
             player.events.frame_ready.load()>initial_frames &&
             player.events.video_width==width && player.events.video_height==height;
         if (pass && hd) { std::ofstream gate((dir+"/1080p-decoder-pass.flag").c_str()); gate << "decoder-path-passed\n"; }
         rc=pass?0:1;
         fprintf(stderr,"[hevc-probe] decoder-path=%s (visual confirmation still required)\n",pass?"PASS":"UNPROVEN");
     } while(false);
-    if (renderer) SDL_DestroyRenderer(renderer); if (window) SDL_DestroyWindow(window); SDL_Quit();
+    if (renderer) SDL_DestroyRenderer(renderer);
+    if (window) SDL_DestroyWindow(window);
+    SDL_Quit();
     fprintf(stderr,"[hevc-probe] exit=%d\n",rc); alarm(0); return rc;
 }

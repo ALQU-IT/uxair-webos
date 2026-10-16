@@ -34,6 +34,7 @@ On the TV, open **UxPlay webOS**. Start Screen Mirroring from an iPhone, iPad, o
 - The development package includes a bounded, metadata-only [direct-media request probe](docs/MILESTONE4C.md). Its [temporary `/info` handshake experiment](docs/MILESTONE4D.md) answers only a bodyless HTTP `GET /info`; it does not enable direct playback or change advertised capabilities.
 - The [Milestone 4E transport and native-resolution audit](docs/MILESTONE4E.md) records why a direct 4K photo prototype remains blocked pending a real payload trace, a safe authorization boundary and a verified B7 output surface.
 - The [Milestone 5A HEVC mirroring audit](docs/MILESTONE5.md) records the pinned transport path and the unresolved Rockhopper decoder/UHD output contract. HEVC advertisement remains disabled.
+- The [Milestone 5B read-only firmware discovery procedure](docs/MILESTONE5B.md) identifies the evidence needed before any standalone HEVC hardware probe is built.
 
 For direct SSH helpers, explicitly set the connection details—no personal network, TV alias, or key path is embedded:
 

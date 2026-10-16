@@ -1,4 +1,5 @@
 #include "hevc_sample.h"
+#include "hevc_launch.h"
 #include <StarfishMediaAPIs.h>
 #include <AcbAPI.h>
 #include <SDL.h>
@@ -13,6 +14,7 @@
 #include <vector>
 #include <time.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 // An isolated experiment: no receiver, discovery, sockets, pairing or persistent settings.
@@ -157,13 +159,43 @@ struct Player {
 }
 
 int main(int argc,char **argv) {
-    // An icon click or ordinary launch is inert. Only explicit CLI launch params run hardware.
-    const bool hd=argc==2 && strcmp(argv[1],"{\"mode\":\"1080p\"}")==0;
-    const bool uhd=argc==2 && strcmp(argv[1],"{\"mode\":\"uhd\"}")==0;
-    if (!hd && !uhd) { fprintf(stderr,"HEVC probe idle: launch with explicit mode; see docs/MILESTONE5C.md\n"); return 0; }
-    const std::string dir=self_dir(); if (dir.empty()) return 2;
-    const std::string log=dir+"/hevc-probe.log";
-    freopen(log.c_str(),"w",stderr); setvbuf(stderr,nullptr,_IOLBF,0);
+    // Record a safe startup category even when Application Manager adds fields
+    // to the JSON launch object or starts the app without an explicit mode.
+    const std::string dir=self_dir();
+    std::string log=dir.empty()?"":dir+"/hevc-probe.log";
+    FILE *log_file=log.empty()?nullptr:fopen(log.c_str(),"a");
+    const int app_log_error=log_file?0:errno;
+    if (!log_file) {
+        log="/tmp/uxplay-hevc-probe.log";
+        log_file=fopen(log.c_str(),"a");
+    }
+    if (!log_file) {
+        fprintf(stderr,"[hevc-probe] startup log-unavailable app_errno=%d fallback_errno=%d\n",app_log_error,errno);
+        return 2;
+    }
+    struct stat log_stat{};
+    if (fstat(fileno(log_file),&log_stat)==0 && log_stat.st_size>1024*1024)
+        ftruncate(fileno(log_file),0);
+    const hevc_probe::LaunchDecision launch=argc==2
+        ? hevc_probe::parse_launch_argument(argv[1]) : hevc_probe::LaunchDecision{};
+    const bool hd=launch.mode==hevc_probe::LaunchMode::Hd1080;
+    const bool uhd=launch.mode==hevc_probe::LaunchMode::Uhd;
+    fprintf(log_file,"[hevc-probe] startup argc=%d arg1_bytes=%zu launch=%s mode=%s log=%s app_log_errno=%d\n",
+            argc,launch.argument_bytes,hevc_probe::launch_status_name(launch.status),
+            hd?"1080p":uhd?"uhd":"idle",log=="/tmp/uxplay-hevc-probe.log"?"tmp":"app",app_log_error);
+    fflush(log_file);
+    if (!hd && !uhd) {
+        fprintf(log_file,"[hevc-probe] idle: explicit mode required\n");
+        fclose(log_file);
+        fprintf(stderr,"HEVC probe idle: launch with explicit mode; see docs/MILESTONE5C.md\n");
+        return 0;
+    }
+    if (dir.empty() || dup2(fileno(log_file),STDERR_FILENO)<0) {
+        fprintf(log_file,"[hevc-probe] startup executable-directory-or-redirect-failed\n");
+        fclose(log_file); return 2;
+    }
+    fclose(log_file);
+    setvbuf(stderr,nullptr,_IOLBF,0);
     int null_fd=open("/dev/null",O_WRONLY);
     if (null_fd>=0) { dup2(null_fd,STDOUT_FILENO); close(null_fd); }
     signal(SIGTERM,stop_signal); signal(SIGINT,stop_signal); signal(SIGALRM,hard_deadline);

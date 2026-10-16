@@ -7,8 +7,10 @@ on:
     paths:
       - '.github/workflows/hevc-probe-ipk.yml'
       - 'src/hevc_probe.cpp'
+      - 'src/hevc_launch.*'
       - 'src/hevc_sample.*'
       - 'tests/hevc_sample_test.cpp'
+      - 'tests/hevc_launch_test.cpp'
       - 'tools/*hevc*'
       - 'tools/verify-elf.py'
       - 'CMakeLists.txt'

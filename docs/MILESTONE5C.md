@@ -5,6 +5,7 @@ The owner's Rockhopper 3.9.0 inspection found `H265`, `HEVC`, `video/x-h265` and
 ## Isolation and safety
 
 - App ID: `com.github.danlflh.uxplaywebos.hevcprobe`. It has no AirPlay code, network listener, launch-at-boot hook, settings or pairing files. Installation and icon launch without explicit parameters **do not run the decoder**.
+- Startup now records only the argument count, bounded argument length, parse category and selected mode. It never writes the launch JSON itself. Native webOS may add fields such as `nid` and `@system_native_app` to the launch object; these do not enable the decoder. Only a top-level `mode` or `params.mode` set to `1080p` or `uhd` does. An absent, malformed, oversized, duplicate or unsupported mode stays idle.
 - Only two generated, packaged local files are accepted: 1920×1080 and 3840×2160, 30-frame, HEVC Main 8-bit 4:2:0 SDR Annex B streams. No URL or external path is accepted. The parser requires AUD-delimited access units and VPS, SPS and PPS before VCL; it checks SPS profile, bit depth, dimensions, file size (12 MiB), access-unit size (2 MiB) and frame count (60 maximum). A malformed or mismatched stream stops before `Load`.
 - The UHD launch is blocked until the 1080p run has accepted every feed and reported a matching Starfish video-info event plus a `FRAMEREADY` callback. The owner should also **visually confirm** 1080p before launching UHD. A callback is not proof of panel presentation.
 - The probe starts feeding only after `Load()` returns true; it does not wait for `LOADCOMPLETED` before sending preroll bytes. It attaches ACB and requests Play when that event arrives. Load event: 8-second deadline; Play event: 5-second deadline; bounded 10 Feed retries per frame; drain: 5 seconds. SIGTERM/SIGINT lead to normal unload/finalize. A 45-second hard watchdog exits if a synchronous proprietary call hangs. Such an emergency exit cannot safely invoke the media API from a signal handler; use the recovery step below if ACB retains its registration.
@@ -33,14 +34,21 @@ ares-install -d YOUR_DEVICE com.github.danlflh.uxplaywebos.hevcprobe_0.1.0_arm.i
 ares-launch -d YOUR_DEVICE com.github.danlflh.uxplaywebos.hevcprobe -p '{"mode":"1080p"}'
 ```
 
-Watch the screen for moving test pattern playback, then collect `hevc-probe.log` from the probe app's installation directory. On the rooted TV, locate it without scanning private receiver data:
+Watch the screen for moving test pattern playback, then collect the probe log. Rockhopper launches the native app inside a jail. The working UxPlay Dev receiver writes its app log under `/var/palm/jail/<app-id>/media/developer/apps/usr/palm/applications/<app-id>/`, so the equivalent probe path is the first place to check. This **probe path remains to be confirmed on the B7**. The probe also attempts the executable's installation directory and falls back to `/tmp/uxplay-hevc-probe.log` if that directory is not writable. Its `startup ... log=app|tmp` marker identifies which one worked. On the rooted TV:
 
 ```sh
-find /media/developer/apps/usr/palm/applications /media/cryptofs/apps/usr/palm/applications \
-  -maxdepth 2 -path '*/com.github.danlflh.uxplaywebos.hevcprobe/hevc-probe.log' -print 2>/dev/null
+APP=com.github.danlflh.uxplaywebos.hevcprobe
+for FILE in \
+  "/var/palm/jail/$APP/media/developer/apps/usr/palm/applications/$APP/hevc-probe.log" \
+  "/media/developer/apps/usr/palm/applications/$APP/hevc-probe.log" \
+  "/media/cryptofs/apps/usr/palm/applications/$APP/hevc-probe.log" \
+  "/var/palm/jail/$APP/tmp/uxplay-hevc-probe.log" \
+  /tmp/uxplay-hevc-probe.log; do
+  if test -f "$FILE"; then echo "$FILE"; cat "$FILE"; fi
+done
 ```
 
-Use `cat` on the returned **probe-only** path. Preserve the full log for diagnosis; it contains result counters, no media bytes or personal device identifiers. If the 1080p pattern is visible and the log ends with `decoder-path=PASS`, launch UHD separately:
+The original implementation required `argv[1]` to be byte-for-byte `{"mode":"1080p"}` or `{"mode":"uhd"}`. Any additional native launch fields made it return before opening a log, explaining the owner's `returnValue:true` plus absent log. A Luna success response confirms launch request acceptance, not that the probe recognized its mode or stayed running. If the corrected build logs `launch=no-mode`, inspect how that firmware actually delivers `params`; do not infer decoder failure. Preserve the full log for diagnosis; it contains result counters, no launch JSON, media bytes or personal device identifiers. A short-lived process is expected after an idle launch and after the finite decoder run. If the 1080p pattern is visible and the log ends with `decoder-path=PASS`, launch UHD separately:
 
 ```sh
 ares-launch -d YOUR_DEVICE com.github.danlflh.uxplaywebos.hevcprobe -p '{"mode":"uhd"}'

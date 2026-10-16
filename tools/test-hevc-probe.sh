@@ -11,3 +11,7 @@ c++ -std=c++11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame
   tests/hevc_launch_test.cpp src/hevc_launch.cpp -o build/tests/hevc-launch-test
 build/tests/hevc-launch-test
 echo 'PASS: sanitizer-backed native webOS launch parsing and idle safety'
+c++ -std=c++11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc \
+  tests/hevc_feed_test.cpp -o build/tests/hevc-feed-test
+build/tests/hevc-feed-test
+echo 'PASS: sanitizer-backed Feed reply classification and partial-feed EOS safety'

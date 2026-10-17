@@ -6,6 +6,7 @@
 #include <AcbAPI.h>
 #include <SDL.h>
 #include <atomic>
+#include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +17,7 @@
 #include <vector>
 #include <time.h>
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -24,7 +26,25 @@ namespace {
 const char kAppId[] = "com.github.danlflh.uxplaywebos.hevcprobe";
 volatile sig_atomic_t stop_requested = 0;
 volatile sig_atomic_t stop_signal_number = 0;
-void stop_signal(int number) { stop_signal_number = number; stop_requested = 1; }
+volatile sig_atomic_t stop_sender_pid = 0;
+volatile sig_atomic_t stop_code = 0;
+volatile sig_atomic_t stop_phase = 0;
+volatile sig_atomic_t phase_number = 0; // 0=start, 1=1080, 2=UHD, 3=cleanup, 4=done
+volatile sig_atomic_t internal_shutdown_requested = 0;
+volatile sig_atomic_t stop_at_sec = 0;
+volatile sig_atomic_t stop_at_msec = 0;
+void stop_signal(int number, siginfo_t *info, void *) {
+    timespec t{};
+    if (clock_gettime(CLOCK_MONOTONIC,&t)==0) {
+        stop_at_sec=sig_atomic_t(t.tv_sec);
+        stop_at_msec=sig_atomic_t(t.tv_nsec/1000000);
+    }
+    stop_sender_pid=info?info->si_pid:0;
+    stop_code=info?info->si_code:0;
+    stop_phase=phase_number;
+    stop_signal_number=number;
+    stop_requested=1;
+}
 void hard_deadline(int) {
     const char message[] = "[hevc-probe] hard-deadline: synchronous firmware call stalled; process exits\n";
     write(STDERR_FILENO, message, sizeof(message)-1);
@@ -169,6 +189,10 @@ struct Player {
         }
     }
     bool close() {
+        if (!acb && !api) return true;
+        phase_number=3;
+        fprintf(stderr,"[hevc-probe] cleanup-begin pid=%ld mono_ms=%lld internal_shutdown=%d\n",
+                long(getpid()),(long long)now_ms(),int(internal_shutdown_requested));
         bool clean=true;
         if (acb && loaded) {
             int result=AcbAPI_setState(acb,APPSTATE_FOREGROUND,PLAYSTATE_UNLOADED,&task);
@@ -191,6 +215,7 @@ struct Player {
             AcbAPI_destroy(acb); fprintf(stderr,"[hevc-probe] cleanup acb-destroy-called\n"); acb=0;
         }
         loaded=false;
+        fprintf(stderr,"[hevc-probe] cleanup-end ok=%d mono_ms=%lld\n",clean,(long long)now_ms());
         return clean;
     }
 };
@@ -228,6 +253,20 @@ int main(int argc,char **argv) {
         fprintf(stderr,"HEVC probe idle: launch with explicit mode; see docs/MILESTONE5C.md\n");
         return 0;
     }
+    std::string state_dir=dir;
+    if (log=="/tmp/uxplay-hevc-probe.log") {
+        state_dir="/tmp/uxplay-hevc-probe-state";
+        if (mkdir(state_dir.c_str(),0700)!=0 && errno!=EEXIST) {
+            fprintf(log_file,"[hevc-probe] startup-state-directory-failed errno=%d\n",errno);
+            fclose(log_file); return 2;
+        }
+        struct stat state_info{};
+        if (lstat(state_dir.c_str(),&state_info)!=0 || !S_ISDIR(state_info.st_mode) ||
+            state_info.st_uid!=geteuid() || (state_info.st_mode&077)!=0) {
+            fprintf(log_file,"[hevc-probe] startup-state-directory-unsafe\n");
+            fclose(log_file); return 2;
+        }
+    }
     if (dir.empty() || dup2(fileno(log_file),STDERR_FILENO)<0) {
         fprintf(log_file,"[hevc-probe] startup executable-directory-or-redirect-failed\n");
         fclose(log_file); return 2;
@@ -236,11 +275,44 @@ int main(int argc,char **argv) {
     setvbuf(stderr,nullptr,_IOLBF,0);
     int null_fd=open("/dev/null",O_WRONLY);
     if (null_fd>=0) { dup2(null_fd,STDOUT_FILENO); close(null_fd); }
-    signal(SIGTERM,stop_signal); signal(SIGINT,stop_signal); signal(SIGALRM,hard_deadline);
+    const int lock_fd=open((state_dir+"/hevc-probe.lock").c_str(),O_CREAT|O_RDWR|O_NOFOLLOW,0600);
+    if (lock_fd<0 || flock(lock_fd,LOCK_EX|LOCK_NB)!=0) {
+        fprintf(stderr,"[hevc-probe] startup-exclusive-lock-failed errno=%d\n",errno);
+        if (lock_fd>=0) close(lock_fd);
+        return 2;
+    }
+    fprintf(stderr,"[hevc-probe] lifecycle pid=%ld mono_ms=%lld mode=%s lock=held\n",
+            long(getpid()),(long long)now_ms(),uhd?"uhd":"1080p");
+    struct sigaction action{};
+    action.sa_sigaction=stop_signal;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags=SA_SIGINFO;
+    if (sigaction(SIGTERM,&action,nullptr)!=0 || sigaction(SIGINT,&action,nullptr)!=0) {
+        fprintf(stderr,"[hevc-probe] signal-handler-install-failed errno=%d\n",errno);
+        close(lock_fd); return 2;
+    }
+    signal(SIGALRM,hard_deadline);
     alarm(45);
+    hevc_probe::GateIdentity gate_identity;
+    std::string gate_reason;
+    const bool gate_identity_ok=hevc_probe::collect_gate_identity(dir,gate_identity,gate_reason);
+    fprintf(stderr,"[hevc-probe] gate-identity ready=%d reason=%s\n",gate_identity_ok,gate_reason.c_str());
+    if (hd && !hevc_probe::clear_uhd_gate(state_dir,gate_reason)) {
+        fprintf(stderr,"[hevc-probe] uhd-gate=blocked reason=%s\n",gate_reason.c_str());
+        alarm(0); close(lock_fd); return 2;
+    }
+    if (uhd) {
+        int source_pid=0;
+        if (!gate_identity_ok || !hevc_probe::consume_uhd_gate(state_dir,gate_identity,now_ms(),source_pid,gate_reason)) {
+            fprintf(stderr,"[hevc-probe] uhd-gate=blocked reason=%s\n",gate_reason.c_str());
+            alarm(0); close(lock_fd); return 2;
+        }
+        fprintf(stderr,"[hevc-probe] uhd-gate=passed source_pid=%d one_use=1\n",source_pid);
+    }
     auto run_case=[&](int width,int height,const char *phase)->int {
-    fprintf(stderr,"[hevc-probe] phase-begin name=%s bounds=%dx%d rss_kib=%d\n",
-            phase,width,height,rss_kib());
+    phase_number=width==3840?2:1;
+    fprintf(stderr,"[hevc-probe] phase-begin name=%s pid=%ld mono_ms=%lld bounds=%dx%d rss_kib=%d\n",
+            phase,long(getpid()),(long long)now_ms(),width,height,rss_kib());
     const std::string file=dir+(width==3840?"/sample-uhd.hevc":"/sample-1080p.hevc");
     std::ifstream in(file.c_str(),std::ios::binary|std::ios::ate);
     if (!in || in.tellg()<16 || in.tellg()>std::streamoff(hevc_probe::kMaxFile)) {
@@ -315,6 +387,8 @@ int main(int argc,char **argv) {
             fprintf(stderr,"[hevc-probe] feed-begin frame=%zu elapsed_ms=%lld load=%d play=%d sink=%d acb_play=%d bytes=%zu\n",
                     i,(long long)(now_ms()-probe_start_ms),player.events.loaded.load(),
                     player.events.playing.load(),player.sink,player.acb_playing,au.size);
+            if (width==3840 && i==0)
+                fprintf(stderr,"[hevc-probe] uhd-first-feed mono_ms=%lld bytes=%zu\n",(long long)now_ms(),au.size);
             bool fed=false;
             bool backpressure=false;
             for (unsigned attempt=0;attempt<10 && !stop_requested && !player.events.failed;++attempt) {
@@ -394,38 +468,37 @@ int main(int argc,char **argv) {
             player.events.playing && player.acb_playing && eos_accepted &&
             accepted==sample.units.size() &&
             player.events.video_width==width && player.events.video_height==height;
+        internal_shutdown_requested=1;
         const bool cleanup_ok=player.close();
         rc=control_path && cleanup_ok?0:1;
         fprintf(stderr,"[hevc-probe] control-path=%s cleanup_ok=%d frame_ready_observed=%d "
                 "decoder-path=UNPROVEN (neither callback nor video-info proves display)\n",
                 control_path?"COMPLETE":"INCOMPLETE",cleanup_ok,
                 player.events.frame_ready.load()>initial_frames);
+        if (width==1920 && rc==0 && gate_identity_ok && !stop_requested) {
+            const bool written=hevc_probe::write_uhd_gate(state_dir,gate_identity,now_ms(),int(getpid()),gate_reason);
+            fprintf(stderr,"[hevc-probe] uhd-gate-token written=%d reason=%s\n",written,gate_reason.c_str());
+            if (!written) rc=1;
+        }
     } while(false);
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
     SDL_Quit();
+    phase_number=4;
     fprintf(stderr,"[hevc-probe] phase-end name=%s control_path=%s rc=%d rss_kib=%d\n",
             phase,rc==0?"complete":"incomplete",rc,rss_kib());
     return rc;
     };
-    int rc=0;
-    if (uhd) {
-        fprintf(stderr,"[hevc-probe] uhd-gate: rerunning 1080p control path in this launch; saved flags ignored\n");
-        hevc_probe::CurrentLaunchUhdGate gate;
-        rc=run_case(1920,1080,"fresh-1080p-gate");
-        gate.record_1080p_control_result(rc,stop_requested);
-        if (gate.permits_uhd()) {
-            fprintf(stderr,"[hevc-probe] uhd-gate=passed source=current-launch-control-path\n");
-            usleep(500000); // Let the prior ACB/Starfish teardown release its media resource.
-            if (stop_requested) {
-                fprintf(stderr,"[hevc-probe] uhd-gate=blocked reason=signal-during-transition signal=%d\n",
-                        int(stop_signal_number));
-                rc=1;
-            } else {
-            rc=run_case(3840,2160,"experimental-uhd");
-            }
-        } else fprintf(stderr,"[hevc-probe] uhd-gate=blocked reason=1080p-incomplete-or-signal rc=%d signal=%d\n",
-                       rc,int(stop_signal_number));
-    } else rc=run_case(1920,1080,"1080p");
-    fprintf(stderr,"[hevc-probe] exit=%d\n",rc); alarm(0); return rc;
+    int rc=run_case(uhd?3840:1920,uhd?2160:1080,uhd?"experimental-uhd":"1080p");
+    if (stop_requested) {
+        const int sender=int(stop_sender_pid);
+        fprintf(stderr,"[hevc-probe] termination reason=signal number=%d sender_pid=%d sender=%s "
+                "si_code=%d phase=%d signal_mono_sec=%d signal_mono_msec=%d internal_shutdown=%d\n",
+                int(stop_signal_number),sender,sender==int(getpid())?"self":sender>0?"other-process":"unknown",
+                int(stop_code),int(stop_phase),int(stop_at_sec),int(stop_at_msec),int(internal_shutdown_requested));
+        rc=1;
+    } else fprintf(stderr,"[hevc-probe] termination reason=%s phase=%d mono_ms=%lld\n",
+                   rc==0?"control-path-complete":"control-path-incomplete",int(phase_number),(long long)now_ms());
+    fprintf(stderr,"[hevc-probe] exit=%d\n",rc);
+    alarm(0); close(lock_fd); return rc;
 }

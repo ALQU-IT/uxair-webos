@@ -1,6 +1,6 @@
 {
   "id": "com.github.danlflh.uxplaywebos.hevcprobe",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "vendor": "UxPlay webOS",
   "type": "native",
   "main": "hevc-probe",

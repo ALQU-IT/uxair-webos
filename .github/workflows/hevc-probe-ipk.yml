@@ -10,6 +10,7 @@ on:
       - 'src/hevc_launch.*'
       - 'src/hevc_feed.h'
       - 'src/hevc_gate.h'
+      - 'src/hevc_gate.cpp'
       - 'src/hevc_sample.*'
       - 'tests/hevc_sample_test.cpp'
       - 'tests/hevc_launch_test.cpp'

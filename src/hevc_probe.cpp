@@ -299,12 +299,14 @@ int main(int argc,char **argv) {
     fprintf(stderr,"[hevc-probe] gate-identity ready=%d reason=%s\n",gate_identity_ok,gate_reason.c_str());
     if (hd && !hevc_probe::clear_uhd_gate(state_dir,gate_reason)) {
         fprintf(stderr,"[hevc-probe] uhd-gate=blocked reason=%s\n",gate_reason.c_str());
+        fprintf(stderr,"[hevc-probe] termination reason=gate-clear-failed exit=2\n");
         alarm(0); close(lock_fd); return 2;
     }
     if (uhd) {
         int source_pid=0;
         if (!gate_identity_ok || !hevc_probe::consume_uhd_gate(state_dir,gate_identity,now_ms(),source_pid,gate_reason)) {
             fprintf(stderr,"[hevc-probe] uhd-gate=blocked reason=%s\n",gate_reason.c_str());
+            fprintf(stderr,"[hevc-probe] termination reason=gate-blocked exit=2\n");
             alarm(0); close(lock_fd); return 2;
         }
         fprintf(stderr,"[hevc-probe] uhd-gate=passed source_pid=%d one_use=1\n",source_pid);
@@ -491,6 +493,11 @@ int main(int argc,char **argv) {
     };
     int rc=run_case(uhd?3840:1920,uhd?2160:1080,uhd?"experimental-uhd":"1080p");
     if (stop_requested) {
+        if (hd) {
+            std::string revoke_reason;
+            const bool revoked=hevc_probe::clear_uhd_gate(state_dir,revoke_reason);
+            fprintf(stderr,"[hevc-probe] uhd-gate-token revoked=%d reason=%s\n",revoked,revoke_reason.c_str());
+        }
         const int sender=int(stop_sender_pid);
         fprintf(stderr,"[hevc-probe] termination reason=signal number=%d sender_pid=%d sender=%s "
                 "si_code=%d phase=%d signal_mono_sec=%d signal_mono_msec=%d internal_shutdown=%d\n",

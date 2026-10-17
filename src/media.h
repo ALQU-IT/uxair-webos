@@ -25,6 +25,7 @@ public:
     std::atomic<int> acb_window_width{0}, acb_window_height{0};
     std::atomic<uint64_t> feed_video_accepted{0}, feed_audio_accepted{0};
     std::atomic<uint64_t> feed_video_retries{0}, feed_audio_retries{0};
+    std::atomic<uint64_t> feed_video_rejected{0};
     std::atomic<uint64_t> feed_calls{0};
     std::atomic<uint64_t> feed_time_ns{0}, feed_max_time_ns{0};
 private:

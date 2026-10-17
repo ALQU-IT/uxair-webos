@@ -216,9 +216,12 @@ int main() {
                 std::string(receiver.incoming_video_codec==2?"HEVC Main8; SDR output":receiver.incoming_video_codec==1?"H.264; SDR output":"Awaiting codec")+
                 "; advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" /30"));
             rows.push_back(UiRow("Incoming / feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),"One-second callback and accepted-feed windows"));
-            rows.push_back(UiRow("Source PTS / display FPS",fmt("%.1f",live_pts_fps)+" / N/A","FRAMEREADY is throttled, not panel presentation"));
+            rows.push_back(UiRow("Source PTS / display FPS",fmt("%.1f",live_pts_fps)+" / N/A",
+                "Starfish info "+std::to_string(media.video_info_width.load())+"x"+std::to_string(media.video_info_height.load())+
+                "; ACB request "+std::to_string(media.acb_window_width.load())+"x"+std::to_string(media.acb_window_height.load())+"; output unmeasured"));
             rows.push_back(UiRow("Video / audio queue",std::to_string(live_queue.video_queue_packets)+" / "+std::to_string(live_queue.queue_packets-live_queue.video_queue_packets),"Video queue residence "+fmt("%.1f",live_queue_ms)+" ms, last 5s"));
-            rows.push_back(UiRow("Starfish feed",fmt("%.1f",live_feed_ms)+" ms","Video-info "+std::to_string(media.video_info_width.load())+"x"+std::to_string(media.video_info_height.load())+"; ACB request "+std::to_string(media.acb_window_width.load())+"x"+std::to_string(media.acb_window_height.load())));
+            rows.push_back(UiRow("Starfish",media.failed?"Error":media.playing?"Playing":media.ready?"Loaded":opened?"Loading":"Idle",
+                "Feed "+std::to_string(media.feed_video_accepted.load())+" accepted / "+std::to_string(media.feed_video_rejected.load())+" rejected; "+fmt("%.1f",live_feed_ms)+" ms avg"));
             rows.push_back(UiRow("Session / memory",session_started?duration_text(uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000):"Idle",(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB RSS":"RSS unavailable")+"  fallback "+(fallback_reason.empty()?"none":fallback_reason)));
         } else if(which==UiPage::History) {
             for(size_t i=0;i<usage.recent.size() && i<7;++i) {
@@ -440,7 +443,7 @@ int main() {
                     std::vector<std::string> lines;
                     lines.push_back(std::string(session_codec==MirrorCodec::ExperimentalHevc?"HEVC Main8 SPS ":"H.264 SPS ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"pending")+"  advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height));
                     lines.push_back("Incoming "+fmt("%.1f",live_incoming_fps)+"  Feed "+fmt("%.1f",live_feed_fps)+" FPS  Displayed N/A");
-                    lines.push_back("Video queue "+std::to_string(live_queue.video_queue_packets)+"  Drops "+std::to_string(live_queue.dropped_video_frames));
+                    lines.push_back("Video queue "+std::to_string(live_queue.video_queue_packets)+"  Drops "+std::to_string(live_queue.dropped_video_frames)+"  Feed rejects "+std::to_string(media.feed_video_rejected.load()));
                     if(settings.diagnostics==DiagnosticsMode::Detailed) {
                         lines.push_back("PTS "+fmt("%.1f",live_pts_fps)+" FPS  Queue "+fmt("%.1f",live_queue_ms)+" ms  Feed "+fmt("%.1f",live_feed_ms)+" ms");
                         lines.push_back(std::string("Audio ")+audio_codec_name(receiver.last_audio_codec.load())+" -> PCM stereo 44.1k");
@@ -469,10 +472,11 @@ int main() {
             if(opened) fprintf(stderr,"[video] incoming_fps=%.2f pts_fps=%.2f frame_ms_avg=%.2f min=%.2f max=%.2f feed_fps=%.2f decoder_events_s=%.2f invalid=%u queue_dropped_frames=%llu\n",
                 incoming_fps,pts_fps,avg_frame_ms,timing.interval_min_ns/1e6,timing.interval_max_ns/1e6,
                 (media.feed_video_accepted.load()-last_feed_video)/window_s,event_delta/window_s,invalid_video,(unsigned long long)q.dropped_video_frames);
-            if(opened) fprintf(stderr,"[pipeline] queue=%zu/512 packets bytes=%zu/%zu (%.1f%%) peak=%zu packets/%zu bytes dropped_packets=%llu retries_video=%llu retries_audio=%llu feed_audio_fps=%.2f feed_avg_us=%.1f feed_max_us=%.1f\n",
+            if(opened) fprintf(stderr,"[pipeline] queue=%zu/512 packets bytes=%zu/%zu (%.1f%%) peak=%zu packets/%zu bytes dropped_packets=%llu retries_video=%llu rejected_video=%llu retries_audio=%llu feed_audio_fps=%.2f feed_avg_us=%.1f feed_max_us=%.1f\n",
                 q.queue_packets,q.queue_bytes,receiver.max_queue_bytes,q.queue_bytes*100.0/receiver.max_queue_bytes,q.peak_queue_packets,q.peak_queue_bytes,
                 (unsigned long long)q.dropped_packets,
                 (unsigned long long)(media.feed_video_retries.load()-last_feed_video_retries),
+                (unsigned long long)media.feed_video_rejected.load(),
                 (unsigned long long)(media.feed_audio_retries.load()-last_feed_audio_retries),
                 (media.feed_audio_accepted.load()-last_feed_audio)/window_s,
                 media.feed_calls.load()?media.feed_time_ns.load()/double(media.feed_calls.load())/1000:0.0,media.feed_max_time_ns.load()/1000.0);

@@ -69,6 +69,7 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
     last_frame_event_ns = 0;
     feed_video_accepted=feed_audio_accepted=0;
     feed_video_retries=feed_audio_retries=0;
+    feed_video_rejected=0;
     feed_calls=0;
     feed_time_ns=feed_max_time_ns=0;
     play_attempts_=0;
@@ -145,7 +146,10 @@ void Media::tick() {
     }
 }
 FeedResult Media::feed(const void *data, size_t size, int64_t pts_ns, bool video) {
-    if (!api_ || !loaded_ || failed || !data || !size) return FeedResult::Error;
+    if (!api_ || !loaded_ || failed || !data || !size) {
+        if(video)++feed_video_rejected;
+        return FeedResult::Error;
+    }
     struct timespec before, after;
     clock_gettime(CLOCK_MONOTONIC, &before);
     char payload[200];
@@ -168,6 +172,7 @@ FeedResult Media::feed(const void *data, size_t size, int64_t pts_ns, bool video
         return FeedResult::Retry;
     }
     fprintf(stderr, "[media] Feed rejected: %s\n", reply.c_str());
+    if(video)++feed_video_rejected;
     return FeedResult::Error;
 }
 void Media::eos() { if (api_ && loaded_) api_->pushEOS(); }

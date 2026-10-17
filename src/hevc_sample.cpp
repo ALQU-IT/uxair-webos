@@ -33,10 +33,19 @@ bool sps(const uint8_t *data, size_t size, Sample& result) {
         if (i >= 4 && data[i] == 3 && data[i-1] == 0 && data[i-2] == 0) continue;
         b.data.push_back(data[i]);
     }
-    uint32_t v, sublayers, profile, chroma, width, height, depth_y, depth_c;
-    if (!b.skip(4) || !b.get(3, sublayers) || sublayers != 0 || !b.skip(1) ||
-        !b.skip(3) || !b.get(5, profile) || !b.skip(32 + 48 + 8) ||
-        !b.ue(v) || !b.ue(chroma) || chroma != 1 ||
+    uint32_t v, vps_id, sps_id, sublayers, profile, chroma, width, height, depth_y, depth_c;
+    if (!b.get(4,vps_id) || !b.get(3, sublayers) || sublayers > 6 || !b.skip(1) ||
+        !b.skip(3) || !b.get(5, profile) || !b.skip(32 + 48 + 8)) return false;
+    bool sub_profile[7] = {}, sub_level[7] = {};
+    for(uint32_t i=0;i<sublayers;++i) {
+        if(!b.get(1,v)) return false;sub_profile[i]=v!=0;
+        if(!b.get(1,v)) return false;sub_level[i]=v!=0;
+    }
+    if(sublayers && !b.skip(2*(8-sublayers))) return false;
+    for(uint32_t i=0;i<sublayers;++i) {
+        if((sub_profile[i] && !b.skip(88)) || (sub_level[i] && !b.skip(8))) return false;
+    }
+    if (!b.ue(sps_id) || sps_id>15 || !b.ue(chroma) || chroma != 1 ||
         !b.ue(width) || !b.ue(height) ||
         !b.get(1, v)) return false;
     if (v) { uint32_t left, right, top, bottom;
@@ -48,6 +57,7 @@ bool sps(const uint8_t *data, size_t size, Sample& result) {
         width == 0 || height == 0 || width > 4096 || height > 2160) return false;
     result.width = int(width); result.height = int(height);
     result.bit_depth = 8; result.profile = int(profile);
+    result.vps_id=int(vps_id);result.sps_id=int(sps_id);
     return true;
 }
 struct Nal { size_t start, payload, end; int type; };
@@ -67,6 +77,22 @@ bool next_nal(const uint8_t *data, size_t size, size_t& pos, Nal& n) {
     n.type = (data[n.payload] >> 1) & 63;
     return (data[n.payload] & 0x80) == 0 && (data[n.payload+1] & 7) != 0;
 }
+}
+bool parse_sps(const uint8_t *bytes, size_t size, Sample& result) {
+    return sps(bytes,size,result);
+}
+bool parse_pps_ids(const uint8_t *bytes, size_t size, int& pps_id, int& sps_id) {
+    if(!bytes || size<3 || size>65536) return false;
+    Bits b;
+    b.data.reserve(size);
+    for(size_t i=2;i<size;++i) {
+        if(i>=4 && bytes[i]==3 && !bytes[i-1] && !bytes[i-2])continue;
+        b.data.push_back(bytes[i]);
+    }
+    uint32_t pps,sps;
+    if(!b.ue(pps) || !b.ue(sps) || pps>63 || sps>15)return false;
+    pps_id=int(pps);sps_id=int(sps);
+    return true;
 }
 bool inspect(const uint8_t *bytes, size_t size, int expected_width,
              int expected_height, Sample& result, std::string& error) {

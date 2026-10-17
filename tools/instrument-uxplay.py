@@ -8,6 +8,7 @@ PINNED_BLOBS = {
     'raop.c': 'b6fc8f3ca31190900c64660a6e6c970381f5b48c',
     'http_request.c': 'ec030c4a1dd5f10597f44b003c2adf079288c1ea',
     'httpd.c': '56a3742f5f9e1bb1ccbcc2879b4663d2e747c726',
+    'raop_rtp_mirror.c': '4ddedfdb16e7a35295bc5fd150a35284b15361c0',
 }
 INCLUDE = '#include "raop.h"\n'
 GATE = '    if (!cseq && !raop->hls_support && !ble) {\n'
@@ -99,6 +100,90 @@ def instrument_httpd(source):
     return source
 
 
+def harden_mirror(source):
+    """Bound the pinned mirror packet parser before HEVC is advertised."""
+    source = source.replace('#include "raop_rtp_mirror.h"\n',
+                            '#include "raop_rtp_mirror.h"\n#include "hevc_config_guard.h"\n', 1)
+    source = source.replace(
+        '            int payload_size = byteutils_get_int(packet, 0);\n',
+        '            int payload_size = byteutils_get_int(packet, 0);\n'
+        '            if (payload_size < 0 || payload_size > 2097152 ||\n'
+        '                (packet[4] == 0x00 && payload_size < 4)) {\n'
+        '                logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "mirror payload bound failed");\n'
+        '                conn_reset = true; break;\n'
+        '            }\n', 1)
+    source = source.replace(
+        '                payload = malloc(payload_size);\n',
+        '                payload = malloc(payload_size ? payload_size : 1);\n'
+        '                if (!payload) { conn_reset = true; break; }\n', 1)
+    source = source.replace(
+        '                    payload_out = (unsigned char*) malloc(payload_size + sps_pps_len);\n'
+        '                    if (!payload_out) {\n'
+        '                        printf("Memory allocation failed (payload_out)\\n");\n'
+        '                        exit(1);\n'
+        '                    }\n',
+        '                    if (sps_pps_len < 0 || payload_size > 2097152 - sps_pps_len) {\n'
+        '                        conn_reset = true; break;\n'
+        '                    }\n'
+        '                    payload_out = (unsigned char*) malloc(payload_size + sps_pps_len);\n'
+        '                    if (!payload_out) { conn_reset = true; break; }\n', 1)
+    source = source.replace(
+        '                    payload_out = (unsigned char*)  malloc(payload_size);\n'
+        '                    payload_decrypted = payload_out;\n',
+        '                    payload_out = (unsigned char*) malloc(payload_size);\n'
+        '                    if (!payload_out) { conn_reset = true; break; }\n'
+        '                    payload_decrypted = payload_out;\n', 1)
+    source = source.replace(
+        '                    int nc_len = byteutils_get_int_be(payload_decrypted, nalu_size);\n',
+        '                    if (nalu_size > payload_size - 4) { valid_data = false; break; }\n'
+        '                    int nc_len = byteutils_get_int_be(payload_decrypted, nalu_size);\n', 1)
+    source = source.replace(
+        '                if (!memcmp(payload + 4, hvc1, 4)) {\n',
+        '                if (payload_size < 8) { conn_reset = true; break; }\n'
+        '                if (!memcmp(payload + 4, hvc1, 4)) {\n', 1)
+    source = source.replace(
+        '                    short sps_size = byteutils_get_short_be(payload,6);\n',
+        '                    if (payload_size < 11) { conn_reset = true; break; }\n'
+        '                    short sps_size = byteutils_get_short_be(payload,6);\n'
+        '                    if (sps_size < 2 || sps_size > payload_size - 11) { conn_reset = true; break; }\n', 1)
+    source = source.replace(
+        '                    short pps_size = byteutils_get_short_be(payload, sps_size + 9);\n',
+        '                    short pps_size = byteutils_get_short_be(payload, sps_size + 9);\n'
+        '                    if (pps_size < 2 || pps_size > payload_size - sps_size - 11) {\n'
+        '                        conn_reset = true; break;\n'
+        '                    }\n', 1)
+    start = '                    unsigned char vps_start_code[] = { 0xa0, 0x00, 0x01, 0x00 };\n'
+    end = '                } else {\n                    if (codec == VIDEO_CODEC_UNKNOWN)'
+    replacement = '''                    /* Pinned hvc1 configuration: three tagged length-prefixed
+                     * parameter sets at offset 0x75. Never trust lengths from
+                     * the sender or inspect beyond the received payload. */
+                    ux_hevc_config_sets sets;
+                    if (!ux_hevc_config_parse(payload, (size_t)payload_size, &sets)) {
+                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR,
+                                   "invalid HEVC parameter-set bounds or NAL type");
+                        conn_reset = true; break;
+                    }
+                    sps_pps_len = (int) sets.annexb_size;
+                    sps_pps = (unsigned char*) malloc(sets.annexb_size);
+                    if (!sps_pps) { conn_reset = true; break; }
+                    unsigned char *out = sps_pps;
+                    for (int k = 0; k < 3; ++k) {
+                        memcpy(out, nal_start_code, 4); out += 4;
+                        memcpy(out, payload + sets.offset[k], sets.length[k]);
+                        out += sets.length[k];
+                    }
+'''
+    source = replace_region(source, start, end, replacement)
+    source = source.replace(
+        '            if (unsupported_codec) {\n                break;\n            }\n',
+        '            if (unsupported_codec || conn_reset) {\n                break;\n            }\n', 1)
+    source = source.replace(
+        '    /* Close the stream file descriptor */\n',
+        '    free(payload);\n    free(sps_pps);\n'
+        '    /* Close the stream file descriptor */\n', 1)
+    return source
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit('Usage: instrument-uxplay.py PINNED_LIB_DIR OUTPUT_DIR')
@@ -115,6 +200,7 @@ def main():
         'raop.c': instrument_raop(originals['raop.c']),
         'http_request.c': instrument_http_request(originals['http_request.c']),
         'httpd.c': instrument_httpd(originals['httpd.c']),
+        'raop_rtp_mirror.c': harden_mirror(originals['raop_rtp_mirror.c']),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     for name, source in generated.items():

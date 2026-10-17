@@ -20,6 +20,15 @@ build/tests/direct-request-diag-test
 python3 tests/instrument_uxplay_test.py
 python3 tests/direct_info_gate_test.py
 python3 tests/b7_media_observe_test.py
+
+cc -std=c11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -Isrc \
+  tests/hevc_config_guard_test.c -o build/tests/hevc-config-guard-test
+build/tests/hevc-config-guard-test
+tools/test-hevc-probe.sh
+c++ -std=c++11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -Isrc \
+  tests/hevc_stream_test.cpp src/hevc_stream.cpp src/hevc_sample.cpp -o build/tests/hevc-stream-test
+build/tests/hevc-stream-test build/hevc-native-samples/sample-1080p.hevc build/hevc-native-samples/sample-uhd.hevc
+echo 'PASS: sanitizer-backed receiver HEVC Annex B, profile, bounds, reconnect and resolution changes'
 if ! pkg-config --exists sdl2; then
   echo 'SDL2 development files are required for input mapping tests.' >&2
   exit 2

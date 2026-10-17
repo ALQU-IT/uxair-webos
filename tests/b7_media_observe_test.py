@@ -17,6 +17,9 @@ def main():
         (tools / "luna-send").write_text('''#!/bin/sh
 case "$4" in
   *videooutput*)
+    if [ "${B7_TEST_FALLBACK:-0}" = 1 ]; then echo '{"returnValue":false,"context":"SECRET_DENIED"}'; exit; fi
+    echo '{"video":[{"connectedSource":"VDEC","sourceInput":{"width":3840,"height":2160},"displayOutput":{"width":1920,"height":1080},"sink":"MAIN","context":"SECRET_CONTEXT"}],"returnValue":true}' ;;
+  *avoutput*)
     echo '{"video":[{"connectedSource":"VDEC","sourceInput":{"width":3840,"height":2160},"displayOutput":{"width":1920,"height":1080},"sink":"MAIN","context":"SECRET_CONTEXT"}],"returnValue":true}' ;;
   *media*)
     echo '{"acbs":[{"width":1920,"height":1080,"pipelineId":"SECRET_PIPELINE"}],"appId":"com.github.danlflh.uxplaywebos.hevcprobe","returnValue":true}' ;;
@@ -36,6 +39,12 @@ esac
         assert "first_acb_window=1920x1080" in output, output
         assert "SECRET_" not in output + result.stderr
         assert len(output) < 5000
+        fallback_env = env.copy()
+        fallback_env["B7_TEST_FALLBACK"] = "1"
+        fallback = subprocess.run(["sh", str(SCRIPT), "snapshot"], env=fallback_env,
+                                  capture_output=True, text=True, timeout=10, check=True)
+        assert "video_service=avoutput" in fallback.stdout, fallback.stdout
+        assert "SECRET_" not in fallback.stdout + fallback.stderr
         bad = subprocess.run(["sh", str(SCRIPT), "invalid"], env=env,
                              capture_output=True, text=True, timeout=5)
         assert bad.returncode == 2

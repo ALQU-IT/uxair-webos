@@ -1,6 +1,7 @@
 #include "audio.h"
 #include "h264.h"
 #include "hevc_stream.h"
+#include "hevc_startup.h"
 #include "media.h"
 #include "receiver.h"
 #include "shell.h"
@@ -92,7 +93,7 @@ int main() {
         receiver.stop();return false;
     };
     const char *app_id=getenv("APPID");if(!app_id)app_id=UXPLAY_APP_ID;
-    Media media;AudioDecoder decoder;HevcStream hevc;
+    Media media;AudioDecoder decoder;HevcStream hevc;HevcStartupGate hevc_startup;
     UiNavigation nav;
     UiPage& page=nav.page;
     int& focus=nav.focus;
@@ -107,6 +108,9 @@ int main() {
     ReceiverDiagnostics live_queue;
     long live_rss_kb=-1;
     bool opened=false,have_pending=false,last_paused=false,audio_started=false,hevc_wait_keyframe=false;
+    bool hevc_preroll_wait_logged=false,hevc_keyframe_wait_logged=false;
+    bool hevc_schedule_wait_logged=false,hevc_invalid_logged=false;
+    bool hevc_first_feed_logged=false;
     int width=settings.width,height=settings.height;
     Packet pending;
     std::vector<uint8_t> configuration;
@@ -152,7 +156,7 @@ int main() {
             }
             if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] could not save usage history\n");
         }
-        media.close();decoder.reset();hevc.reset();receiver.disconnect();opened=false;have_pending=false;
+        media.close();decoder.reset();hevc.reset();hevc_startup.reset();receiver.disconnect();opened=false;have_pending=false;
         origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;
         session_success=false;session_started_utc=0;observed_width=observed_height=0;hardware_decoder_errors=0;
         nav=UiNavigation();ui_visible=true;
@@ -160,6 +164,9 @@ int main() {
         video_feed_time.reset();audio_feed_time.reset();media_tick_time.reset();
         width=settings.width;height=settings.height;
         session_codec=MirrorCodec::H264;hevc_wait_keyframe=false;
+        hevc_preroll_wait_logged=hevc_keyframe_wait_logged=false;
+        hevc_schedule_wait_logged=hevc_invalid_logged=false;
+        hevc_first_feed_logged=false;
     };
     auto recover_decoder=[&](bool failed_hevc,const char *reason){
         if(failed_hevc) {
@@ -406,7 +413,11 @@ int main() {
             if(opened && session_codec==MirrorCodec::ExperimentalHevc &&
                now-session_started>8000000000LL && !receiver.paused &&
                (!media.ready || (video_count>0 && !media.playing))) {
-                fprintf(stderr,"[codec] HEVC startup timeout ready=%d playing=%d\n",int(media.ready.load()),int(media.playing.load()));
+                ReceiverDiagnostics pending_queue=receiver.queue_snapshot();
+                fprintf(stderr,"[codec-start] timeout stage=%s ready=%d playing=%d video_feed=%u preroll=%u/%zu queue=%zu elapsed_ms=%.0f\n",
+                    media.ready?"play":"load",int(media.ready.load()),int(media.playing.load()),video_count,
+                    hevc_startup.preroll_frames(),hevc_startup.preroll_bytes(),pending_queue.video_queue_packets,
+                    (now-session_started)/1e6);
                 ++hardware_decoder_errors;finish(true);recover_decoder(true,"startup-timeout");
             }
             if(opened && media.playing && video_count)session_success=true;
@@ -536,6 +547,10 @@ int main() {
             }
             video_parse_time.record(uint64_t(std::max<int64_t>(0,now_ns()-parse_begin)));
             if(!valid) {
+                if(incoming_hevc && !hevc_invalid_logged) {
+                    fprintf(stderr,"[codec-start] waiting-for-valid-parameter-sets\n");
+                    hevc_invalid_logged=true;
+                }
                 ++invalid_video;have_pending=false;
                 if(settings.codec==MirrorCodec::ExperimentalHevc && invalid_video>=30) {
                     fprintf(stderr,"[codec] rejected 30 access units before startup codec=%s\n",incoming_hevc?"HEVC":"H264");
@@ -550,7 +565,13 @@ int main() {
                 }
                 width=observed_width=input_width;height=observed_height=input_height;
             }
-            if(!keyframe||(!incoming_hevc&&configuration.empty())||!observed_width) {have_pending=false;continue;}
+            if(!keyframe||(!incoming_hevc&&configuration.empty())||!observed_width) {
+                if(incoming_hevc && !hevc_keyframe_wait_logged) {
+                    fprintf(stderr,"[codec-start] waiting-for-valid-keyframe\n");
+                    hevc_keyframe_wait_logged=true;
+                }
+                have_pending=false;continue;
+            }
             session_codec=incoming_hevc?MirrorCodec::ExperimentalHevc:MirrorCodec::H264;
             int64_t open_begin=now_ns();
             bool media_opened=media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,
@@ -559,6 +580,11 @@ int main() {
             if(!media_opened) {
                 bool was_hevc=session_codec==MirrorCodec::ExperimentalHevc;
                 finish(true);recover_decoder(was_hevc,"starfish-load-failed");continue;
+            }
+            if(incoming_hevc) {
+                hevc_startup.accept_load();hevc_preroll_wait_logged=hevc_first_feed_logged=false;
+                fprintf(stderr,"[codec-start] load-accepted=1 first-video=validated-keyframe preroll-delay-ms=200 limit=%u-frames/%zu-bytes\n",
+                    HevcStartupGate::kMaxPrerollFrames,HevcStartupGate::kMaxPrerollBytes);
             }
             // The pre-roll starts after synchronous decoder initialization.
             // Reusing the loop's old `now` would silently consume it in Load().
@@ -581,9 +607,12 @@ int main() {
         if(pts<0){have_pending=false;continue;}
         // Large clock discontinuities require a fresh AirPlay session, not an unbounded queue.
         if(pts>now-start+5000000000LL) {fprintf(stderr,"[session] timestamp discontinuity\n");finish(true);receiver.show("Device clock changed. Connect again.");continue;}
-        if(now<start+pts) {SDL_Delay(2);continue;}
-        if(session_codec==MirrorCodec::ExperimentalHevc && !media.ready) {
-            SDL_Delay(5);continue;
+        if(now<start+pts) {
+            if(session_codec==MirrorCodec::ExperimentalHevc && video_count==0 && !hevc_schedule_wait_logged) {
+                fprintf(stderr,"[codec-start] feed-wait reason=pts-schedule remaining_ms=%.0f\n",(start+pts-now)/1e6);
+                hevc_schedule_wait_logged=true;
+            }
+            SDL_Delay(2);continue;
         }
         if(pending.video && ((pending.codec==2 && session_codec!=MirrorCodec::ExperimentalHevc) ||
                              (pending.codec==0 && session_codec!=MirrorCodec::H264))) {
@@ -650,6 +679,8 @@ int main() {
                 fprintf(stderr,"[codec] reinitialize=%u input=%dx%d load_ms=%.2f success=%d\n",
                     ++decoder_reinitializations,width,height,(now_ns()-open_begin)/1e6,int(media_opened));
                 if(!media_opened) {finish(true);recover_decoder(true,"hevc-reopen-failed");continue;}
+                hevc_startup.accept_load();hevc_preroll_wait_logged=hevc_first_feed_logged=false;
+                fprintf(stderr,"[codec-start] load-accepted=1 reason=parameter-change input=%dx%d\n",width,height);
                 hevc_wait_keyframe=false;
                 origin=pending.timestamp;start=now_ns()+200000000;pts=0;audio_end=0;audio_started=false;decoder.reset();
                 video_feed_timing.reset();live_feed_last=0;
@@ -662,6 +693,23 @@ int main() {
             }
             pending.codec=3; // Parsed; retain AU unchanged across Feed retries.
             if(reopened)continue;
+        }
+        HevcFeedStage hevc_feed_stage=HevcFeedStage::Loaded;
+        if(pending.video && session_codec==MirrorCodec::ExperimentalHevc) {
+            hevc_feed_stage=hevc_startup.video_stage(media.ready.load(),media.failed.load(),pending.data.size());
+            if(hevc_feed_stage==HevcFeedStage::WaitingForLoad) {
+                if(!hevc_preroll_wait_logged) {
+                    fprintf(stderr,"[codec-start] feed-wait reason=preroll-limit accepted=%u bytes=%zu ready=0\n",
+                        hevc_startup.preroll_frames(),hevc_startup.preroll_bytes());
+                    hevc_preroll_wait_logged=true;
+                }
+                SDL_Delay(5);continue;
+            }
+            if(hevc_feed_stage==HevcFeedStage::NoLoad || hevc_feed_stage==HevcFeedStage::Failed) {
+                fprintf(stderr,"[codec-start] feed-blocked reason=%s\n",
+                    hevc_feed_stage==HevcFeedStage::NoLoad?"load-not-accepted":"decoder-error");
+                finish(true);recover_decoder(true,"hevc-feed-state");continue;
+            }
         }
         if(!pending.video && pending.codec!=0) {
             std::vector<uint8_t> pcm;
@@ -695,6 +743,15 @@ int main() {
         (pending.video?video_feed_time:audio_feed_time).record(uint64_t(std::max<int64_t>(0,feed_end-feed_begin)));
         if(result==FeedResult::Accepted) {
             if(pending.video) {
+                if(session_codec==MirrorCodec::ExperimentalHevc) {
+                    hevc_startup.accepted_video(pending.data.size(),hevc_feed_stage);
+                    if(!hevc_first_feed_logged) {
+                        fprintf(stderr,"[codec-start] first-video-feed accepted=1 stage=%s ready=%d playing=%d bytes=%zu elapsed_ms=%.0f\n",
+                            hevc_feed_stage==HevcFeedStage::Preroll?"preroll":"loaded",int(media.ready.load()),
+                            int(media.playing.load()),pending.data.size(),(feed_end-session_started)/1e6);
+                        hevc_first_feed_logged=true;
+                    }
+                }
                 ++video_count;
                 video_feed_timing.record(pending.timestamp,feed_end);
                 video_schedule_late.record(uint64_t(std::max<int64_t>(0,feed_begin-(start+pts))));

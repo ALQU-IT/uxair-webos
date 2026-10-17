@@ -33,9 +33,17 @@ void Media::event(int type, int64_t value, const char *message, void *user) {
     if (type == PF_EVENT_TYPE_FRAMEREADY) { ++m->frames; m->last_frame_event_ns=monotonic_ns(); return; }
     if (type == PF_EVENT_TYPE_INT_NEED_DATA || type == PF_EVENT_TYPE_INT_ENOUGH_DATA || type == PF_EVENT_TYPE_INT_BUFFERLOW || type == 0x2a) return;
     fprintf(stderr, "[smp] event=0x%x value=%lld %s\n", type, (long long)value, message ? message : "");
+    if (type == PF_EVENT_TYPE_STR_RESOURCE_INFO)
+        fprintf(stderr,"[media-state] resource-info event=0x%x load-completed=0\n",type);
     switch (type) {
-    case PF_EVENT_TYPE_STR_STATE_UPDATE__LOADCOMPLETED: m->ready = true; break;
-    case PF_EVENT_TYPE_STR_STATE_UPDATE__PLAYING: m->playing = true; break;
+    case PF_EVENT_TYPE_STR_STATE_UPDATE__LOADCOMPLETED:
+        m->ready = true;
+        fprintf(stderr,"[media-state] load-completed event=0x%x\n",type);
+        break;
+    case PF_EVENT_TYPE_STR_STATE_UPDATE__PLAYING:
+        m->playing = true;
+        fprintf(stderr,"[media-state] playing event=0x%x\n",type);
+        break;
     case PF_EVENT_TYPE_STR_STATE_UPDATE__ENDOFSTREAM: m->ended = true; break;
     case PF_EVENT_TYPE_INT_ERROR:
     case PF_EVENT_TYPE_STR_ERROR: m->failed = true; break;

@@ -25,9 +25,13 @@ cc -std=c11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -Isrc \
   tests/hevc_config_guard_test.c -o build/tests/hevc-config-guard-test
 build/tests/hevc-config-guard-test
 tools/test-hevc-probe.sh
+c++ -std=c++11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc \
+  tests/hevc_startup_test.cpp -o build/tests/hevc-startup-test
+build/tests/hevc-startup-test
+echo 'PASS: bounded HEVC preroll before LOADCOMPLETED, delayed Play and finite failure path'
 c++ -std=c++11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -Isrc \
   tests/hevc_stream_test.cpp src/hevc_stream.cpp src/hevc_sample.cpp -o build/tests/hevc-stream-test
-build/tests/hevc-stream-test build/hevc-native-samples/sample-1080p.hevc build/hevc-native-samples/sample-uhd.hevc
+build/tests/hevc-stream-test build/hevc-native-samples/sample-1080p.hevc build/hevc-native-samples/sample-uhd.hevc build/hevc-native-samples/sample-portrait.hevc
 echo 'PASS: sanitizer-backed receiver HEVC Annex B, profile, bounds, reconnect and resolution changes'
 if ! pkg-config --exists sdl2; then
   echo 'SDL2 development files are required for input mapping tests.' >&2

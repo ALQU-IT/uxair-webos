@@ -533,9 +533,9 @@ int main() {
             video_parse_time.record(uint64_t(std::max<int64_t>(0,now_ns()-parse_begin)));
             if(!valid) {
                 ++invalid_video;have_pending=false;
-                if(incoming_hevc && invalid_video>=30) {
-                    fprintf(stderr,"[codec] HEVC rejected 30 access units before startup\n");
-                    finish(true);recover_decoder(true,"invalid-parameter-sets");
+                if(settings.codec==MirrorCodec::ExperimentalHevc && invalid_video>=30) {
+                    fprintf(stderr,"[codec] rejected 30 access units before startup codec=%s\n",incoming_hevc?"HEVC":"H264");
+                    finish(true);recover_decoder(true,incoming_hevc?"invalid-parameter-sets":"unsupported-h264-stream");
                 }
                 continue;
             }

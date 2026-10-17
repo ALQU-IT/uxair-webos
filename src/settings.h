@@ -5,6 +5,7 @@
 
 enum class HdrPolicy { Auto, Sdr };
 enum class DiagnosticsMode { Off, Compact, Detailed };
+enum class MirrorCodec { H264, ExperimentalHevc };
 
 struct Settings {
     int width = 1280;
@@ -12,6 +13,7 @@ struct Settings {
     int max_fps = 30;
     HdrPolicy hdr = HdrPolicy::Auto;
     DiagnosticsMode diagnostics = DiagnosticsMode::Off;
+    MirrorCodec codec = MirrorCodec::H264;
 };
 
 struct MirrorLimits {
@@ -26,6 +28,7 @@ bool supported_mirror_resolution(int width, int height);
 bool supported_mirror_fps(int fps);
 bool set_mirror_resolution(Settings& settings, int width, int height);
 bool set_mirror_fps(Settings& settings, int fps);
+bool set_mirror_codec(Settings& settings, MirrorCodec codec);
 bool input_fits_mirror_profile(const Settings& settings, int width, int height);
 MirrorLimits mirror_limits(const Settings& settings);
 VideoWindow fit_video_window(int source_width, int source_height, int canvas_width, int canvas_height);

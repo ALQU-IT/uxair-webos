@@ -8,7 +8,8 @@ struct AdvertisedCapabilities {
 };
 inline AdvertisedCapabilities advertised_capabilities(const Settings& settings) {
     Settings safe=settings;validate_settings(safe);
-    AdvertisedCapabilities result={safe.width,safe.height,safe.max_fps,false,false,false,true};
+    AdvertisedCapabilities result={safe.width,safe.height,safe.max_fps,false,false,
+        safe.codec==MirrorCodec::ExperimentalHevc,true};
     return result;
 }
 // Pinned UxPlay 1.74 defaults from lib/dnssdint.h; these four overrides leave

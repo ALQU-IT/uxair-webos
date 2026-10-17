@@ -143,7 +143,11 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     dnssd_set_airplay_features(dnssd,42,int(capabilities.hevc));dnssd_set_airplay_features(dnssd,27,int(capabilities.legacy_pairing));
     raop_callbacks_t cb={};cb.cls=this;
     cb.audio_process=[](void *p,raop_ntp_t *,audio_decode_struct *d){self(p).enqueue(false,d->ct,d->ntp_time_remote,d->data,d->data_len);};
-    cb.video_process=[](void *p,raop_ntp_t *,video_decode_struct *d){if(!d->is_h265)self(p).enqueue(true,0,d->ntp_time_remote,d->data,d->data_len);};
+    cb.video_process=[](void *p,raop_ntp_t *,video_decode_struct *d){
+        Receiver& r=self(p);
+        if(!d->is_h265 || r.active_profile.codec==MirrorCodec::ExperimentalHevc)
+            r.enqueue(true,d->is_h265?2:0,d->ntp_time_remote,d->data,d->data_len);
+    };
     cb.conn_feedback=[](void *p){self(p).activity=now_ns();};
     cb.conn_reset=[](void *p,int reason){fprintf(stderr,"[session] transport reset reason=%d\n",reason);++self(p).session_resets;self(p).reset=true;};
     cb.video_reset=[](void *p,reset_type_t reason){fprintf(stderr,"[session] video reset reason=%d\n",int(reason));++self(p).session_resets;self(p).reset=true;};
@@ -158,13 +162,22 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     cb.audio_get_format=[](void *p,unsigned char *,unsigned short *,bool *,bool *,uint64_t *){self(p).has_audio=true;};
     cb.video_report_size=[](void *p,float *,float *,float *w,float *h){
         Receiver& r=self(p);
-        if(std::isfinite(*w)&&std::isfinite(*h)&&*w>0&&*h>0&&*w<=1920&&*h<=1920&&
+        const int bound=r.active_profile.width;
+        if(std::isfinite(*w)&&std::isfinite(*h)&&*w>0&&*h>0&&*w<=bound&&*h<=bound&&
            input_fits_mirror_profile(r.active_profile,int(*w),int(*h))) {
             r.width=int(*w);r.height=int(*h);
             fprintf(stderr,"[receiver] sender reported geometry=%dx%d\n",int(*w),int(*h));
         }
     };
-    cb.video_set_codec=[](void *,video_codec_t c)->int{return c==VIDEO_CODEC_H264?0:-1;};
+    cb.video_set_codec=[](void *p,video_codec_t c)->int{
+        Receiver& r=self(p);
+        bool accepted=c==VIDEO_CODEC_H264 ||
+            (c==VIDEO_CODEC_H265 && r.active_profile.codec==MirrorCodec::ExperimentalHevc);
+        fprintf(stderr,"[codec] negotiated=%s accepted=%d\n",
+                c==VIDEO_CODEC_H264?"H264":c==VIDEO_CODEC_H265?"HEVC":"unsupported",int(accepted));
+        if(accepted) r.incoming_video_codec=c==VIDEO_CODEC_H265?2:1;
+        return accepted?0:-1;
+    };
     cb.mirror_video_running=[](void *p,bool running){self(p).mirror=running;};
     cb.report_client_request=[](void *p,char *id,char *model,char *name,bool *admit){
         Receiver& r=self(p);std::lock_guard<std::mutex> l(r.mutex);
@@ -196,8 +209,9 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
        raop_set_plist(raop,"refreshRate",capabilities.max_fps) ||
        raop_set_plist(raop,"maxFPS",capabilities.max_fps) ||
        raop_set_plist(raop,"pin",0)) return false;
-    fprintf(stderr,"[receiver] advertised mirror=%dx%d/%d max video packet=%zu queue=%zu\n",
-            capabilities.width,capabilities.height,capabilities.max_fps,max_video_packet_bytes,max_queue_bytes);
+    fprintf(stderr,"[receiver] advertised mirror=%dx%d/%d codecs=%s max video packet=%zu queue=%zu\n",
+            capabilities.width,capabilities.height,capabilities.max_fps,
+            capabilities.hevc?"H264+experimental-HEVC":"H264",max_video_packet_bytes,max_queue_bytes);
     raop_set_dnssd(raop,dnssd);
     unsigned short udp[3]={0,0,0},tcp[2]={0,0},port=0;
     raop_set_udp_ports(raop,udp);raop_set_tcp_ports(raop,tcp);
@@ -220,7 +234,7 @@ void Receiver::adjust_audio_delay(int delta) {
 }
 void Receiver::disconnect() {
     if(raop) raop_remove_known_connections(raop);
-    clear(); has_audio=false;mirror=false;paused=false;reset=false;audio_flush=false;last_audio_arrival=0;
+    clear(); has_audio=false;mirror=false;paused=false;reset=false;audio_flush=false;last_audio_arrival=0;incoming_video_codec=0;
     show("Waiting for a connection");
 }
 void Receiver::stop() {

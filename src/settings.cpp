@@ -7,16 +7,26 @@
 #include <unistd.h>
 
 bool supported_mirror_resolution(int width, int height) {
-    return (width == 1280 && height == 720) || (width == 1920 && height == 1080);
+    return (width == 1280 && height == 720) || (width == 1920 && height == 1080) ||
+           (width == 3840 && height == 2160);
 }
 bool supported_mirror_fps(int fps) { return fps == 30; }
 bool set_mirror_resolution(Settings& settings, int width, int height) {
-    if (!supported_mirror_resolution(width, height)) return false;
+    if (!supported_mirror_resolution(width, height) ||
+        (width == 3840 && settings.codec != MirrorCodec::ExperimentalHevc)) return false;
     settings.width = width; settings.height = height; return true;
 }
 bool set_mirror_fps(Settings& settings, int fps) {
     if (!supported_mirror_fps(fps)) return false;
     settings.max_fps = fps; return true;
+}
+bool set_mirror_codec(Settings& settings, MirrorCodec codec) {
+    if(codec!=MirrorCodec::H264 && codec!=MirrorCodec::ExperimentalHevc) return false;
+    settings.codec=codec;
+    if(codec==MirrorCodec::H264 && settings.width==3840) {
+        settings.width=1280; settings.height=720;
+    }
+    return true;
 }
 bool input_fits_mirror_profile(const Settings& settings, int width, int height) {
     if(width<=0 || height<=0) return false;
@@ -26,6 +36,7 @@ bool input_fits_mirror_profile(const Settings& settings, int width, int height) 
 }
 MirrorLimits mirror_limits(const Settings& settings) {
     Settings safe=settings; validate_settings(safe);
+    if (safe.width == 3840) return {2*1024*1024, 16*1024*1024, 2*1024*1024};
     if (safe.width == 1920) return {2*1024*1024, 8*1024*1024, 2*1024*1024};
     return {1024*1024, 4*1024*1024, 1024*1024};
 }
@@ -48,7 +59,10 @@ ProfileSwitchResult switch_mirror_profile(Settings& current, int width, int heig
     return activate(current) ? ProfileSwitchResult::Recovered : ProfileSwitchResult::Unavailable;
 }
 void validate_settings(Settings& settings) {
-    if (!supported_mirror_resolution(settings.width, settings.height)) {
+    if(settings.codec!=MirrorCodec::H264 && settings.codec!=MirrorCodec::ExperimentalHevc)
+        settings.codec=MirrorCodec::H264;
+    if (!supported_mirror_resolution(settings.width, settings.height) ||
+        (settings.width==3840 && settings.codec!=MirrorCodec::ExperimentalHevc)) {
         settings.width = 1280; settings.height = 720;
     }
     if (!supported_mirror_fps(settings.max_fps)) settings.max_fps = 30;
@@ -74,6 +88,8 @@ bool load_settings(const std::string& path, Settings& settings) {
         if (line == "resolution=720p") { parsed.width=1280; parsed.height=720; }
         else if (line == "resolution=1080p") { parsed.width=1920; parsed.height=1080; }
         else if (line == "resolution=4k") { parsed.width=3840; parsed.height=2160; }
+        else if (line == "codec=hevc-experimental") parsed.codec=MirrorCodec::ExperimentalHevc;
+        else if (line == "codec=h264") parsed.codec=MirrorCodec::H264;
         else if (line == "fps=30") parsed.max_fps=30;
         else if (line == "fps=60") parsed.max_fps=60;
         else if (line == "hdr=auto") parsed.hdr=HdrPolicy::Auto;
@@ -93,8 +109,9 @@ bool save_settings(const std::string& path, const Settings& settings) {
     FILE *file=fopen(temp.c_str(), "w");
     if (!file) return false;
     chmod(temp.c_str(), 0600);
-    bool ok=fprintf(file,"UXPLAY_SETTINGS_V1\nresolution=%s\nfps=30\nhdr=%s\ndiagnostics=%s\n",
-        safe.width==1920?"1080p":"720p",
+    bool ok=fprintf(file,"UXPLAY_SETTINGS_V1\nresolution=%s\ncodec=%s\nfps=30\nhdr=%s\ndiagnostics=%s\n",
+        safe.width==3840?"4k":safe.width==1920?"1080p":"720p",
+        safe.codec==MirrorCodec::ExperimentalHevc?"hevc-experimental":"h264",
         safe.hdr==HdrPolicy::Sdr?"sdr":"auto",
         safe.diagnostics==DiagnosticsMode::Compact?"compact":safe.diagnostics==DiagnosticsMode::Detailed?"detailed":"off")>0;
     if (fflush(file)!=0 || fsync(fileno(file))!=0) ok=false;

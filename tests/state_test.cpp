@@ -18,13 +18,14 @@ int main() {
     Settings settings;
     assert(supported_mirror_resolution(1280,720));
     assert(supported_mirror_resolution(1920,1080));
-    assert(!supported_mirror_resolution(3840,2160));
+    assert(supported_mirror_resolution(3840,2160));
     assert(supported_mirror_fps(30) && !supported_mirror_fps(60));
     assert(input_fits_mirror_profile(settings,1280,720));
     assert(input_fits_mirror_profile(settings,720,1280)); // portrait orientation
     assert(!input_fits_mirror_profile(settings,1920,1080));
     assert(!input_fits_mirror_profile(settings,1080,1920));
     assert(!set_mirror_resolution(settings,3840,2160));
+    assert(settings.codec==MirrorCodec::H264);
     assert(!set_mirror_fps(settings,60));
     assert(settings.width==1280 && settings.height==720 && settings.max_fps==30);
     AdvertisedCapabilities profile=advertised_capabilities(settings);
@@ -56,6 +57,20 @@ int main() {
     assert(!input_fits_mirror_profile(settings,2000,1000));
     assert(mirror_limits(settings).video_packet_bytes==2*1024*1024);
     assert(mirror_limits(settings).queue_bytes==8*1024*1024);
+    Settings hevc=settings;
+    assert(set_mirror_codec(hevc,MirrorCodec::ExperimentalHevc));
+    assert(set_mirror_resolution(hevc,3840,2160));
+    assert(input_fits_mirror_profile(hevc,3840,2160));
+    assert(!input_fits_mirror_profile(hevc,4096,2160));
+    assert(mirror_limits(hevc).queue_bytes==16*1024*1024);
+    AdvertisedCapabilities hevc_profile=advertised_capabilities(hevc);
+    assert(hevc_profile.hevc && hevc_profile.width==3840 && hevc_profile.height==2160);
+    assert(!hevc_profile.hls && !hevc_profile.direct_video && hevc_profile.max_fps==30);
+    assert(save_settings(settings_path,hevc));
+    assert(load_settings(settings_path,loaded));
+    assert(loaded.codec==MirrorCodec::ExperimentalHevc && loaded.width==3840);
+    assert(set_mirror_codec(hevc,MirrorCodec::H264));
+    assert(hevc.width==1280 && hevc.height==720);
     VideoWindow landscape=fit_video_window(1920,1080,1920,1080);
     assert(landscape.x==0 && landscape.y==0 && landscape.width==1920 && landscape.height==1080);
     VideoWindow portrait=fit_video_window(1080,1920,1920,1080);

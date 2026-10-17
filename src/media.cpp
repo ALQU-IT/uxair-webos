@@ -3,6 +3,7 @@
 #include <StarfishMediaAPIs.h>
 #include <AcbAPI.h>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <sstream>
 #include <time.h>
@@ -10,6 +11,17 @@
 // This firmware exports a three-argument wrapper; the NDK declaration omits taskId.
 extern "C" int acb_video_info(long, const char *, long *) __asm__("AcbAPI_setMediaVideoData");
 struct Media::Impl { std::mutex mutex; std::string video_info; };
+static int video_info_number(const char *message, const char *field) {
+    if(!message) return 0;
+    std::string text(message);
+    size_t pos=text.find(field);
+    if(pos==std::string::npos) return 0;
+    pos=text.find(':',pos);
+    if(pos==std::string::npos) return 0;
+    char *end=nullptr;
+    long value=strtol(text.c_str()+pos+1,&end,10);
+    return end!=text.c_str()+pos+1 && value>0 && value<=4096 ? int(value) : 0;
+}
 static int64_t monotonic_ns() { timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return int64_t(t.tv_sec)*1000000000LL+t.tv_nsec; }
 Media::Media() : impl_(new Impl) {}
 Media::~Media() { close(); delete impl_; }
@@ -29,6 +41,8 @@ void Media::event(int type, int64_t value, const char *message, void *user) {
     case PF_EVENT_TYPE_STR_ERROR: m->failed = true; break;
     case PF_EVENT_TYPE_STR_VIDEO_INFO:
         if (message) {
+            m->video_info_width=video_info_number(message,"\"width\"");
+            m->video_info_height=video_info_number(message,"\"height\"");
             std::lock_guard<std::mutex> lock(m->impl_->mutex);
             m->impl_->video_info = message;
             m->video_info_pending_ = true;
@@ -38,8 +52,10 @@ void Media::event(int type, int64_t value, const char *message, void *user) {
     }
 }
 bool Media::open(const char *app_id, int width, int height, bool audio, int rate,
-                 int video_source_buffer_bytes, int canvas_width, int canvas_height) {
-    if (width<=0 || height<=0 || video_source_buffer_bytes<1048576 || video_source_buffer_bytes>2097152)
+                 int video_source_buffer_bytes, int canvas_width, int canvas_height, MirrorCodec codec) {
+    if (width<=0 || height<=0 || video_source_buffer_bytes<1048576 || video_source_buffer_bytes>2097152 ||
+        (codec==MirrorCodec::H264 && int64_t(width)*height>1920*1080) ||
+        (codec==MirrorCodec::ExperimentalHevc && int64_t(width)*height>3840*2160))
         return false;
     if (!canvas_width) canvas_width=width;
     if (!canvas_height) canvas_height=height;
@@ -48,6 +64,8 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
     close();
     ready = playing = ended = failed = false;
     frames = 0;
+    video_info_width=video_info_height=0;
+    acb_window_width=window.width;acb_window_height=window.height;
     last_frame_event_ns = 0;
     feed_video_accepted=feed_audio_accepted=0;
     feed_video_retries=feed_audio_retries=0;
@@ -76,7 +94,8 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
     fprintf(stderr,"[media-init] ACB media ID end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
     std::ostringstream p;
     p << "{\"args\":[{\"mediaTransportType\":\"BUFFERSTREAM\",\"option\":{\"appId\":\"" << app_id
-      << "\",\"queryPosition\":false,\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\"H264\"";
+      << "\",\"queryPosition\":false,\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\""
+      << (codec==MirrorCodec::ExperimentalHevc?"H265":"H264") << "\"";
     if (audio) p << ",\"audio\":\"PCM\"";
     p << "},\"esInfo\":{\"pauseAtDecodeTime\":true,\"ptsToDecode\":0,\"seperatedPTS\":true,\"videoFpsValue\":30,\"videoFpsScale\":1},\"format\":\"RAW\",\"provider\":\"Chrome\"";
     if (audio) p << ",\"pcmInfo\":{\"channelMode\":\"stereo\",\"format\":\"S16LE\",\"sampleRate\":" << rate / 1000.0

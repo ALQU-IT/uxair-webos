@@ -1,5 +1,6 @@
 #include "audio.h"
 #include "h264.h"
+#include "hevc_stream.h"
 #include "media.h"
 #include "receiver.h"
 #include "shell.h"
@@ -62,20 +63,21 @@ int main() {
         }
     }
     Settings settings;
-    if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d hdr=%s diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.hdr==HdrPolicy::Sdr?"SDR":"Auto (SDR fallback)",diagnostics_mode_name(settings.diagnostics));
+    if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d codec=%s hdr=%s diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.codec==MirrorCodec::ExperimentalHevc?"experimental-HEVC":"H264",settings.hdr==HdrPolicy::Sdr?"SDR":"Auto (SDR fallback)",diagnostics_mode_name(settings.diagnostics));
     UsageStats usage;
     load_usage_stats(state_dir+"/usage-v1",usage);
     Receiver receiver;
     bool receiver_started=receiver.start(state_dir,settings);
     if(!receiver_started) {
         receiver.stop();
-        if(settings.width==1920) {
-            fprintf(stderr,"[settings] 1080p receiver start failed; trying 720p recovery\n");
+        if(settings.width==1920 || settings.codec==MirrorCodec::ExperimentalHevc) {
+            fprintf(stderr,"[settings] receiver start failed; trying H264 720p recovery\n");
+            set_mirror_codec(settings,MirrorCodec::H264);
             set_mirror_resolution(settings,1280,720);
             receiver_started=receiver.start(state_dir,settings);
             if(receiver_started) {
                 if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] recovery save failed\n");
-                receiver.show("1080p startup failed. Restored 720p; reconnect sender.");
+                receiver.show("Quality startup failed. Restored H.264 720p; reconnect sender.");
             } else receiver.stop();
         }
         if(!receiver_started) {
@@ -90,18 +92,21 @@ int main() {
         receiver.stop();return false;
     };
     const char *app_id=getenv("APPID");if(!app_id)app_id=UXPLAY_APP_ID;
-    Media media;AudioDecoder decoder;
+    Media media;AudioDecoder decoder;HevcStream hevc;
     UiNavigation nav;
     UiPage& page=nav.page;
     int& focus=nav.focus;
     bool ui_visible=true,session_success=false;
     uint64_t session_started_utc=0, ingress_at_start=0, drops_at_start=0,video_drops_at_start=0,hardware_decoder_errors=0;
     int observed_width=0,observed_height=0;
+    MirrorCodec session_codec=MirrorCodec::H264;
+    unsigned decoder_reinitializations=0;
+    std::string fallback_reason;
     double live_incoming_fps=0,live_feed_fps=0,live_pts_fps=0,live_queue_ms=0,live_feed_ms=0;
     uint64_t live_ingress_last=0,live_feed_last=0;
     ReceiverDiagnostics live_queue;
     long live_rss_kb=-1;
-    bool opened=false,have_pending=false,last_paused=false,audio_started=false;
+    bool opened=false,have_pending=false,last_paused=false,audio_started=false,hevc_wait_keyframe=false;
     int width=settings.width,height=settings.height;
     Packet pending;
     std::vector<uint8_t> configuration;
@@ -110,7 +115,7 @@ int main() {
     std::vector<uint8_t> silence(441*4,0);
     int64_t start=0,last_ui=0,last_stats=now_ns(),last_live=last_stats,stall=0,session_started=0,app_started=last_stats;
     unsigned video_count=0,audio_count=0,decode_errors=0,late_audio=0,silence_blocks=0,invalid_video=0;
-    unsigned sessions_started=0,sessions_ended=0,last_decoder_events=0;
+    unsigned sessions_started=0,sessions_ended=0,last_decoder_events=0,hevc_transport_failures=0;
     uint64_t last_feed_video=0,last_feed_audio=0,last_feed_video_retries=0,last_feed_audio_retries=0;
     uint64_t audio_decode_calls=0,audio_decode_ns=0,audio_decode_max_ns=0;
     VideoTiming video_feed_timing;
@@ -128,7 +133,8 @@ int main() {
                 summary.started_utc=session_started_utc;
                 summary.duration_ms=uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000;
                 summary.kind=SessionKind::Mirror;
-                summary.width=unsigned(observed_width);summary.height=unsigned(observed_height);summary.codec=1;
+                summary.width=unsigned(observed_width);summary.height=unsigned(observed_height);
+                summary.codec=session_codec==MirrorCodec::ExperimentalHevc?2:1;
                 summary.incoming_frames=receiver.total_video_arrivals.load()-ingress_at_start;
                 summary.feed_frames=video_count;
                 ReceiverDiagnostics final_queue=receiver.queue_snapshot();
@@ -146,15 +152,31 @@ int main() {
             }
             if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] could not save usage history\n");
         }
-        media.close();decoder.reset();receiver.disconnect();opened=false;have_pending=false;
+        media.close();decoder.reset();hevc.reset();receiver.disconnect();opened=false;have_pending=false;
         origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;
         session_success=false;session_started_utc=0;observed_width=observed_height=0;hardware_decoder_errors=0;
         nav=UiNavigation();ui_visible=true;
         video_feed_timing.reset();video_parse_time.reset();video_schedule_late.reset();video_pending_time.reset();
         video_feed_time.reset();audio_feed_time.reset();media_tick_time.reset();
         width=settings.width;height=settings.height;
+        session_codec=MirrorCodec::H264;hevc_wait_keyframe=false;
     };
-    auto recover_1080_decoder=[&](){
+    auto recover_decoder=[&](bool failed_hevc,const char *reason){
+        if(failed_hevc) {
+            fallback_reason=reason;
+            fprintf(stderr,"[codec] fallback reason=%s next-session=H264-720p\n",reason);
+            Settings previous=settings;
+            set_mirror_codec(settings,MirrorCodec::H264);
+            set_mirror_resolution(settings,1280,720);
+            if(activate_profile(settings)) {
+                if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] fallback save failed\n");
+                receiver.show("HEVC failed. H.264 720p active; reconnect sender.");
+            } else {
+                settings=previous;
+                receiver.show("HEVC failed. Restart app for H.264 recovery.");
+            }
+            return;
+        }
         if(settings.width!=1920) {receiver.show("TV decoder failed. Connect again.");return;}
         ProfileSwitchResult result=switch_mirror_profile(settings,1280,720,activate_profile);
         if(result==ProfileSwitchResult::Applied) {
@@ -166,21 +188,22 @@ int main() {
     auto rows_for=[&](UiPage which)->std::vector<UiRow> {
         std::vector<UiRow> rows;
         if(which==UiPage::Mirroring) {
-            rows.push_back(UiRow("Resolution",settings.width==1920?"1080p / 30":"720p / 30","Change takes effect after sender reconnect",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Resolution",settings.width==3840?"4K / 30 experimental":settings.width==1920?"1080p / 30":"720p / 30","4K requires experimental HEVC; reconnect after change",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Video codec",settings.codec==MirrorCodec::ExperimentalHevc?"Experimental HEVC / H.265":"H.264 only","HEVC is unverified in AirPlay on B7; change before connecting",receiver.idle_for_profile_change()));
             rows.push_back(UiRow("Maximum frame rate","30 FPS","60 FPS is not validated on this receiver",false));
             rows.push_back(UiRow("Actual incoming SPS",observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting video","Source dimensions, not the TV window size",false));
-            rows.push_back(UiRow("AirPlay receiver",receiver.status(),"H.264 screen mirroring; 720p is the recovery profile",false));
+            rows.push_back(UiRow("AirPlay receiver",receiver.status(),"H.264 720p is the recovery profile",false));
         } else if(which==UiPage::Media) {
             rows.push_back(UiRow("Direct photos","Unavailable","Photos shown through screen mirroring still work",false));
             rows.push_back(UiRow("Direct video","Unavailable","HLS and Photos direct-video handling are not enabled",false));
             rows.push_back(UiRow("Preferred quality","Auto","No independent direct-media quality modes yet",false));
             rows.push_back(UiRow("HDR policy",settings.hdr==HdrPolicy::Auto?"Auto":"SDR","Auto currently falls back to SDR"));
-            rows.push_back(UiRow("HEVC / 4K","Unavailable","Requires verified protocol and decoder paths",false));
+            rows.push_back(UiRow("HEVC / 4K","Experimental mirroring","Main 8-bit SDR only; no direct media or native output proof",false));
             rows.push_back(UiRow("HDR10 / HLG / Dolby Vision","Unavailable","Color metadata and output signaling are unverified",false));
         } else if(which==UiPage::Statistics) {
             rows.push_back(UiRow("Total playback",duration_text(usage.playback_ms),"Counted after Starfish begins playing"));
             rows.push_back(UiRow("Successful sessions",std::to_string(usage.successful_sessions),"Mirror "+std::to_string(usage.mirror_sessions)+"  Audio "+std::to_string(usage.audio_sessions)+"  Direct "+std::to_string(usage.direct_sessions)));
-            rows.push_back(UiRow("Last session",usage.recent.empty()?"Never":utc_text(usage.recent.front().started_utc),usage.recent.empty()?"No completed session":duration_text(usage.recent.front().duration_ms)+"  H.264 "+std::to_string(usage.recent.front().width)+"x"+std::to_string(usage.recent.front().height)));
+            rows.push_back(UiRow("Last session",usage.recent.empty()?"Never":utc_text(usage.recent.front().started_utc),usage.recent.empty()?"No completed session":duration_text(usage.recent.front().duration_ms)+(usage.recent.front().codec==2?"  HEVC ":"  H.264 ")+std::to_string(usage.recent.front().width)+"x"+std::to_string(usage.recent.front().height)));
             rows.push_back(UiRow("Recent sessions","Open",std::to_string(usage.recent.size())+" local summaries retained"));
             double hours=usage.playback_ms/3600000.0;
             rows.push_back(UiRow("Lifetime input / feed",hours>0?fmt("%.1f",usage.incoming_frames/(hours*3600))+" / "+fmt("%.1f",usage.feed_frames/(hours*3600))+" FPS":"No data","Averages include still-image periods; not displayed FPS"));
@@ -189,18 +212,20 @@ int main() {
         } else if(which==UiPage::Diagnostics) {
             rows.push_back(UiRow("On-screen overlay",diagnostics_mode_name(settings.diagnostics),"Off, Compact or Detailed"));
             std::string resolution=observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting SPS";
-            rows.push_back(UiRow("Incoming SPS",resolution,"Advertised "+std::to_string(settings.width)+" x "+std::to_string(settings.height)+" / 30; H.264 SDR"));
+            rows.push_back(UiRow("Negotiated / input",resolution,
+                std::string(receiver.incoming_video_codec==2?"HEVC Main8; SDR output":receiver.incoming_video_codec==1?"H.264; SDR output":"Awaiting codec")+
+                "; advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" /30"));
             rows.push_back(UiRow("Incoming / feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),"One-second callback and accepted-feed windows"));
             rows.push_back(UiRow("Source PTS / display FPS",fmt("%.1f",live_pts_fps)+" / N/A","FRAMEREADY is throttled, not panel presentation"));
             rows.push_back(UiRow("Video / audio queue",std::to_string(live_queue.video_queue_packets)+" / "+std::to_string(live_queue.queue_packets-live_queue.video_queue_packets),"Video queue residence "+fmt("%.1f",live_queue_ms)+" ms, last 5s"));
-            rows.push_back(UiRow("Starfish feed",fmt("%.1f",live_feed_ms)+" ms","Average video Feed call, last 5s; not decode latency"));
-            rows.push_back(UiRow("Session / memory",session_started?duration_text(uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000):"Idle",(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB RSS":"RSS unavailable")+"  Audio "+audio_codec_name(receiver.last_audio_codec.load())+" -> PCM"));
+            rows.push_back(UiRow("Starfish feed",fmt("%.1f",live_feed_ms)+" ms","Video-info "+std::to_string(media.video_info_width.load())+"x"+std::to_string(media.video_info_height.load())+"; ACB request "+std::to_string(media.acb_window_width.load())+"x"+std::to_string(media.acb_window_height.load())));
+            rows.push_back(UiRow("Session / memory",session_started?duration_text(uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000):"Idle",(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB RSS":"RSS unavailable")+"  fallback "+(fallback_reason.empty()?"none":fallback_reason)));
         } else if(which==UiPage::History) {
             for(size_t i=0;i<usage.recent.size() && i<7;++i) {
                 const SessionSummary& s=usage.recent[i];
                 double seconds=s.duration_ms/1000.0;
                 rows.push_back(UiRow(utc_text(s.started_utc),duration_text(s.duration_ms),
-                    std::string(session_kind_name(s.kind))+" H.264 "+std::to_string(s.width)+"x"+std::to_string(s.height)+
+                    std::string(session_kind_name(s.kind))+(s.codec==2?" HEVC ":" H.264 ")+std::to_string(s.width)+"x"+std::to_string(s.height)+
                     "  input/feed "+fmt("%.1f",seconds?s.incoming_frames/seconds:0)+"/"+fmt("%.1f",seconds?s.feed_frames/seconds:0)+" FPS"));
             }
             if(rows.empty())rows.push_back(UiRow("No completed sessions yet","","Playback history stays on this TV"));
@@ -217,9 +242,15 @@ int main() {
         UiDialog d;d.selected=nav.choice;
         switch(nav.dialog) {
             case UiDialogKind::Resolution:
-                d.current=settings.width==1920?1:0;
+                d.current=settings.width==3840?2:settings.width==1920?1:0;
                 d.title="Screen mirroring resolution";d.description="Disconnect sender first. Reconnect after applying.";
-                d.choices={"720p / 30 FPS  -  safe fallback","1080p / 30 FPS  -  tested on B7"};break;
+                d.choices={"720p / 30 FPS  -  safe fallback","1080p / 30 FPS  -  tested on B7"};
+                if(settings.codec==MirrorCodec::ExperimentalHevc)d.choices.push_back("4K / 30 FPS  -  experimental HEVC; sender may choose lower");
+                break;
+            case UiDialogKind::Codec:
+                d.current=settings.codec==MirrorCodec::ExperimentalHevc?1:0;
+                d.title="Screen mirroring codec";d.description="Experimental HEVC Main 8-bit SDR; no HDR or direct media. Reconnect sender.";
+                d.choices={"H.264 only  -  safe default","Experimental HEVC / H.265  -  B7 AirPlay unverified"};break;
             case UiDialogKind::Hdr:
                 d.current=settings.hdr==HdrPolicy::Sdr?1:0;
                 d.title="HDR policy";d.description="True HDR is not available; Auto uses SDR.";
@@ -242,10 +273,10 @@ int main() {
     auto apply_resolution=[&](int target) {
         if(!receiver.idle_for_profile_change()) {receiver.show("Disconnect sender before changing quality.");return;}
         const Settings previous=settings;
-        ProfileSwitchResult result=switch_mirror_profile(settings,target,target==1920?1080:720,activate_profile);
+        ProfileSwitchResult result=switch_mirror_profile(settings,target,target==3840?2160:target==1920?1080:720,activate_profile);
         if(result==ProfileSwitchResult::Applied) {
             if(save_settings(state_dir+"/settings-v1",settings))
-                receiver.show(std::string(target==1920?"1080p":"720p")+" advertised. Reconnect sender; check incoming SPS.");
+                receiver.show(std::string(target==3840?"4K experimental":target==1920?"1080p":"720p")+" advertised. Reconnect; check incoming SPS.");
             else {
                 fprintf(stderr,"[settings] save failed; restoring previous receiver profile\n");
                 bool restored=activate_profile(previous);settings=previous;
@@ -253,6 +284,27 @@ int main() {
             }
         } else if(result==ProfileSwitchResult::Recovered) receiver.show("Quality start failed; previous profile restored.");
         else if(result==ProfileSwitchResult::Unavailable) receiver.show("Receiver unavailable. Restart app to recover.");
+    };
+    auto apply_codec=[&](MirrorCodec codec) {
+        if(!receiver.idle_for_profile_change()) {receiver.show("Disconnect sender before changing codec.");return;}
+        const Settings previous=settings;
+        Settings proposed=settings;
+        if(!set_mirror_codec(proposed,codec) || proposed.codec==settings.codec)return;
+        if(!activate_profile(proposed)) {
+            bool restored=activate_profile(previous);
+            receiver.show(restored?"Codec start failed; previous profile restored.":"Receiver unavailable. Restart app.");
+            return;
+        }
+        if(!save_settings(state_dir+"/settings-v1",proposed)) {
+            bool restored=activate_profile(previous);
+            receiver.show(restored?"Codec save failed; previous profile restored.":"Codec save failed. Restart app.");
+            return;
+        }
+        settings=proposed;
+        fallback_reason.clear();
+        receiver.show(codec==MirrorCodec::ExperimentalHevc?
+            "Experimental HEVC advertised. Reconnect sender; check actual codec.":
+            "H.264 active. Reconnect sender.");
     };
     bool running=true;
     while(running) {
@@ -297,7 +349,8 @@ int main() {
             if(nav.dialog!=UiDialogKind::None) {
                 UiDialogKind kind=nav.dialog;
                 int choice=nav.confirm();
-                if(kind==UiDialogKind::Resolution && choice>=0 && choice<=1)apply_resolution(choice?1920:1280);
+                if(kind==UiDialogKind::Resolution && choice>=0 && choice<=(settings.codec==MirrorCodec::ExperimentalHevc?2:1))apply_resolution(choice==2?3840:choice?1920:1280);
+                else if(kind==UiDialogKind::Codec && choice>=0 && choice<=1)apply_codec(choice?MirrorCodec::ExperimentalHevc:MirrorCodec::H264);
                 else if(kind==UiDialogKind::Hdr && choice>=0 && choice<=1) {
                     settings.hdr=choice?HdrPolicy::Sdr:HdrPolicy::Auto;
                     if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");
@@ -312,7 +365,8 @@ int main() {
             } else {
                 const std::vector<UiRow> rows=rows_for(page);
                 if(focus>=0 && focus<int(rows.size()) && rows[focus].enabled) {
-                    if(page==UiPage::Mirroring && focus==0)nav.begin(UiDialogKind::Resolution,settings.width==1920?1:0);
+                    if(page==UiPage::Mirroring && focus==0)nav.begin(UiDialogKind::Resolution,settings.width==3840?2:settings.width==1920?1:0);
+                    else if(page==UiPage::Mirroring && focus==1)nav.begin(UiDialogKind::Codec,settings.codec==MirrorCodec::ExperimentalHevc?1:0);
                     else if(page==UiPage::Media && focus==3)nav.begin(UiDialogKind::Hdr,settings.hdr==HdrPolicy::Sdr?1:0);
                     else if(page==UiPage::Diagnostics && focus==0)nav.begin(UiDialogKind::Overlay,int(settings.diagnostics));
                     else if(page==UiPage::Statistics && focus==3) {page=UiPage::History;focus=0;}
@@ -322,7 +376,15 @@ int main() {
             }
             last_ui=0;
         }
-        if(receiver.reset.exchange(false))finish(true);
+        if(receiver.reset.exchange(false)) {
+            bool hevc_startup=receiver.incoming_video_codec==2 && !opened;
+            if(hevc_startup)++hevc_transport_failures;
+            finish(true);
+            if(hevc_startup && hevc_transport_failures>=2) {
+                recover_decoder(true,"repeated-transport-reset");
+                hevc_transport_failures=0;
+            }
+        }
         if(receiver.activity && now-receiver.activity>20000000000LL && (opened||receiver.mirror)) {
             fprintf(stderr,"[session] idle timeout\n");
             finish(true);receiver.show("Connection lost. Connect again.");
@@ -334,7 +396,16 @@ int main() {
             media_tick_time.record(uint64_t(std::max<int64_t>(0,now_ns()-tick_begin)));
             bool paused=receiver.paused;
             if(paused!=last_paused) {media.pause(paused);last_paused=paused;}
-            if(media.failed) {++hardware_decoder_errors;finish(true);recover_1080_decoder();}
+            if(media.failed) {
+                bool was_hevc=session_codec==MirrorCodec::ExperimentalHevc;
+                ++hardware_decoder_errors;finish(true);recover_decoder(was_hevc,"starfish-error");
+            }
+            if(opened && session_codec==MirrorCodec::ExperimentalHevc &&
+               now-session_started>8000000000LL && !receiver.paused &&
+               (!media.ready || (video_count>0 && !media.playing))) {
+                fprintf(stderr,"[codec] HEVC startup timeout ready=%d playing=%d\n",int(media.ready.load()),int(media.playing.load()));
+                ++hardware_decoder_errors;finish(true);recover_decoder(true,"startup-timeout");
+            }
             if(opened && media.playing && video_count)session_success=true;
             // Some senders negotiate audio after mirroring starts. Prime the PCM
             // track only until the first real packet arrives. Filling later gaps
@@ -367,12 +438,13 @@ int main() {
                     shell.page(page,"Live session  •  Back returns to playback",rows_for(page),focus,"Incoming and Feed are receiver rates  •  Displayed FPS unavailable",nav.dialog==UiDialogKind::None?nullptr:&d);
                 } else if(settings.diagnostics!=DiagnosticsMode::Off) {
                     std::vector<std::string> lines;
-                    lines.push_back(std::string("H.264 SPS ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"pending")+"  advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height));
+                    lines.push_back(std::string(session_codec==MirrorCodec::ExperimentalHevc?"HEVC Main8 SPS ":"H.264 SPS ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"pending")+"  advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height));
                     lines.push_back("Incoming "+fmt("%.1f",live_incoming_fps)+"  Feed "+fmt("%.1f",live_feed_fps)+" FPS  Displayed N/A");
                     lines.push_back("Video queue "+std::to_string(live_queue.video_queue_packets)+"  Drops "+std::to_string(live_queue.dropped_video_frames));
                     if(settings.diagnostics==DiagnosticsMode::Detailed) {
                         lines.push_back("PTS "+fmt("%.1f",live_pts_fps)+" FPS  Queue "+fmt("%.1f",live_queue_ms)+" ms  Feed "+fmt("%.1f",live_feed_ms)+" ms");
                         lines.push_back(std::string("Audio ")+audio_codec_name(receiver.last_audio_codec.load())+" -> PCM stereo 44.1k");
+                        lines.push_back("Starfish "+std::to_string(media.video_info_width.load())+"x"+std::to_string(media.video_info_height.load())+"  ACB "+std::to_string(media.acb_window_width.load())+"x"+std::to_string(media.acb_window_height.load())+"  reinit "+std::to_string(decoder_reinitializations));
                         lines.push_back("RSS "+(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB":"N/A")+"  Session "+duration_text(uint64_t(std::max<int64_t>(0,now-session_started))/1000000));
                     }
                     shell.overlay(lines);
@@ -445,27 +517,49 @@ int main() {
             // discarded, then both streams share this frame's remote NTP origin.
             if(!pending.video) {have_pending=false;continue;}
             int64_t parse_begin=now_ns();
-            auto info=inspect_h264(pending.data.data(),pending.data.size());
+            const bool incoming_hevc=pending.codec==2;
+            bool valid=false,keyframe=false;
+            int input_width=0,input_height=0;
+            if(incoming_hevc) {
+                HevcFrameInfo info=hevc.inspect(pending.data.data(),pending.data.size());
+                valid=info.valid;keyframe=info.keyframe;
+                input_width=info.width;input_height=info.height;
+            } else {
+                auto info=inspect_h264(pending.data.data(),pending.data.size());
+                valid=info.valid;keyframe=info.keyframe;
+                input_width=info.width;input_height=info.height;
+                if(!info.configuration.empty())configuration=info.configuration;
+            }
             video_parse_time.record(uint64_t(std::max<int64_t>(0,now_ns()-parse_begin)));
-            if(!info.valid){++invalid_video;have_pending=false;continue;}
-            if(!info.configuration.empty())configuration=info.configuration;
-            if(info.width) {
-                if(!input_fits_mirror_profile(settings,info.width,info.height)) {
-                    fprintf(stderr,"[video] sender resolution %dx%d exceeds selected profile %dx%d\n",info.width,info.height,settings.width,settings.height);
+            if(!valid) {
+                ++invalid_video;have_pending=false;
+                if(incoming_hevc && invalid_video>=30) {
+                    fprintf(stderr,"[codec] HEVC rejected 30 access units before startup\n");
+                    finish(true);recover_decoder(true,"invalid-parameter-sets");
+                }
+                continue;
+            }
+            if(input_width) {
+                if(!input_fits_mirror_profile(settings,input_width,input_height)) {
+                    fprintf(stderr,"[video] sender resolution %dx%d exceeds selected profile %dx%d\n",input_width,input_height,settings.width,settings.height);
                     finish(true);receiver.show("Sender resolution exceeds selected profile");continue;
                 }
-                width=observed_width=info.width;height=observed_height=info.height;
+                width=observed_width=input_width;height=observed_height=input_height;
             }
-            if(!info.keyframe||configuration.empty()||!observed_width) {have_pending=false;continue;}
+            if(!keyframe||(!incoming_hevc&&configuration.empty())||!observed_width) {have_pending=false;continue;}
+            session_codec=incoming_hevc?MirrorCodec::ExperimentalHevc:MirrorCodec::H264;
             int64_t open_begin=now_ns();
-            bool media_opened=media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,settings.width,settings.height);
+            bool media_opened=media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,
+                std::min(settings.width,1920),std::min(settings.height,1080),session_codec);
             fprintf(stderr,"[media-init] open_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
             if(!media_opened) {
-                finish(true);recover_1080_decoder();continue;
+                bool was_hevc=session_codec==MirrorCodec::ExperimentalHevc;
+                finish(true);recover_decoder(was_hevc,"starfish-load-failed");continue;
             }
             // The pre-roll starts after synchronous decoder initialization.
             // Reusing the loop's old `now` would silently consume it in Load().
             opened=true;origin=pending.timestamp;session_started=now_ns();start=session_started+200000000;stall=0;++sessions_started;
+            if(incoming_hevc)hevc_transport_failures=0;
             session_started_utc=uint64_t(std::time(nullptr));session_success=false;
             ingress_at_start=receiver.total_video_arrivals.load();if(ingress_at_start)--ingress_at_start;
             ReceiverDiagnostics initial_queue=receiver.queue_snapshot();
@@ -475,13 +569,27 @@ int main() {
             audio_decode_calls=audio_decode_ns=audio_decode_max_ns=0;
             last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
             ui_visible=false;shell.transparent();
-            fprintf(stderr,"[session] %dx%d audio=%d\n",width,height,int(receiver.has_audio));
+            fprintf(stderr,"[session] codec=%s input=%dx%d advertised=%dx%d audio=%d profile=%s bitdepth=%d\n",
+                    incoming_hevc?"HEVC":"H264",width,height,settings.width,settings.height,int(receiver.has_audio),
+                    incoming_hevc?"Main":"H264",incoming_hevc?8:0);
         }
         int64_t pts=pending.timestamp>=origin ? int64_t(pending.timestamp-origin) : -int64_t(origin-pending.timestamp);
         if(pts<0){have_pending=false;continue;}
         // Large clock discontinuities require a fresh AirPlay session, not an unbounded queue.
         if(pts>now-start+5000000000LL) {fprintf(stderr,"[session] timestamp discontinuity\n");finish(true);receiver.show("Device clock changed. Connect again.");continue;}
         if(now<start+pts) {SDL_Delay(2);continue;}
+        if(session_codec==MirrorCodec::ExperimentalHevc && !media.ready) {
+            SDL_Delay(5);continue;
+        }
+        if(pending.video && ((pending.codec==2 && session_codec!=MirrorCodec::ExperimentalHevc) ||
+                             (pending.codec==0 && session_codec!=MirrorCodec::H264))) {
+            fprintf(stderr,"[codec] mid-session codec change requires reconnect\n");
+            bool was_hevc=session_codec==MirrorCodec::ExperimentalHevc;
+            finish(true);
+            if(was_hevc)recover_decoder(true,"codec-switch");
+            else receiver.show("Codec changed. Reconnect sender.");
+            continue;
+        }
         if(pending.video && pending.codec==0) {
             int64_t parse_begin=now_ns();
             auto info=inspect_h264(pending.data.data(),pending.data.size());
@@ -498,9 +606,10 @@ int main() {
             if(info.width && (width!=info.width||height!=info.height)) {
                 media.close();width=info.width;height=info.height;
                 int64_t open_begin=now_ns();
-                bool media_opened=info.keyframe && media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,settings.width,settings.height);
+                bool media_opened=info.keyframe && media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,
+                    std::min(settings.width,1920),std::min(settings.height,1080));
                 fprintf(stderr,"[media-init] reopen_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
-                if(!media_opened) {finish(true);recover_1080_decoder();continue;}
+                if(!media_opened) {finish(true);recover_decoder(false,"h264-reopen-failed");continue;}
                 origin=pending.timestamp;start=now_ns();pts=0;audio_end=0;audio_started=false;decoder.reset();
                 video_feed_timing.reset();
                 live_feed_last=0;
@@ -508,6 +617,47 @@ int main() {
                 fprintf(stderr,"[session] geometry=%dx%d\n",width,height);
             }
             pending.codec=1; // Already parsed: do not repeat on decoder back-pressure.
+        }
+        if(pending.video && pending.codec==2) {
+            bool reopened=false;
+            int64_t parse_begin=now_ns();
+            HevcFrameInfo info=hevc.inspect(pending.data.data(),pending.data.size());
+            video_parse_time.record(uint64_t(std::max<int64_t>(0,now_ns()-parse_begin)));
+            if(!info.valid) {
+                have_pending=false;
+                if(++invalid_video>=30) {finish(true);recover_decoder(true,"invalid-access-units");}
+                continue;
+            }
+            if(!input_fits_mirror_profile(settings,info.width,info.height)) {
+                fprintf(stderr,"[codec] HEVC input %dx%d exceeds advertised profile\n",info.width,info.height);
+                finish(true);recover_decoder(true,"unsupported-dimensions");continue;
+            }
+            observed_width=info.width;observed_height=info.height;
+            bool changed=info.configuration_changed || info.width!=width || info.height!=height;
+            if(changed)hevc_wait_keyframe=true;
+            if(hevc_wait_keyframe) {
+                if(!info.keyframe) {have_pending=false;continue;}
+                media.close();width=info.width;height=info.height;
+                int64_t open_begin=now_ns();
+                bool media_opened=media.open(app_id,width,height,true,44100,
+                    mirror_limits(settings).video_source_buffer_bytes,
+                    std::min(settings.width,1920),std::min(settings.height,1080),
+                    MirrorCodec::ExperimentalHevc);
+                fprintf(stderr,"[codec] reinitialize=%u input=%dx%d load_ms=%.2f success=%d\n",
+                    ++decoder_reinitializations,width,height,(now_ns()-open_begin)/1e6,int(media_opened));
+                if(!media_opened) {finish(true);recover_decoder(true,"hevc-reopen-failed");continue;}
+                hevc_wait_keyframe=false;
+                origin=pending.timestamp;start=now_ns()+200000000;pts=0;audio_end=0;audio_started=false;decoder.reset();
+                video_feed_timing.reset();live_feed_last=0;
+                last_decoder_events=0;last_feed_video=last_feed_audio=0;
+                last_feed_video_retries=last_feed_audio_retries=0;
+                reopened=true;
+            }
+            if(!ensure_hevc_aud(pending.data,info.has_aud)) {
+                finish(true);recover_decoder(true,"access-unit-bound");continue;
+            }
+            pending.codec=3; // Parsed; retain AU unchanged across Feed retries.
+            if(reopened)continue;
         }
         if(!pending.video && pending.codec!=0) {
             std::vector<uint8_t> pcm;
@@ -549,9 +699,15 @@ int main() {
             have_pending=false;stall=0;
         } else if(result==FeedResult::Retry) {
             if(!stall)stall=now;
-            if(now-stall>3000000000LL){finish(true);receiver.show("Playback stopped. Connect again.");}
+            if(now-stall>3000000000LL){
+                bool was_hevc=session_codec==MirrorCodec::ExperimentalHevc;
+                finish(true);recover_decoder(was_hevc,"feed-backpressure-timeout");
+            }
             SDL_Delay(5);
-        } else {finish(true);recover_1080_decoder();}
+        } else {
+            bool was_hevc=session_codec==MirrorCodec::ExperimentalHevc;
+            finish(true);recover_decoder(was_hevc,"feed-rejected");
+        }
     }
     if(opened)finish();
     receiver.stop();media.close();

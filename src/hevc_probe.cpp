@@ -1,6 +1,7 @@
 #include "hevc_sample.h"
 #include "hevc_launch.h"
 #include "hevc_feed.h"
+#include "hevc_gate.h"
 #include <StarfishMediaAPIs.h>
 #include <AcbAPI.h>
 #include <SDL.h>
@@ -93,7 +94,7 @@ void event(int type,int64_t value,const char *message,void *user) {
 }
 void acb_event(long,long,long type,long app,long play,const char *) {
     static std::atomic<unsigned> logged{0};
-    if (logged.fetch_add(1)<48)
+    if (logged.fetch_add(1)<96)
         fprintf(stderr,"[hevc-probe] acb event=%ld app=%ld play=%ld\n",type,app,play);
 }
 // The NDK prototype omits the taskId that this firmware's wrapper expects.
@@ -167,20 +168,30 @@ struct Player {
             acb_playing=true;
         }
     }
-    void close() {
+    bool close() {
+        bool clean=true;
         if (acb && loaded) {
             int result=AcbAPI_setState(acb,APPSTATE_FOREGROUND,PLAYSTATE_UNLOADED,&task);
             fprintf(stderr,"[hevc-probe] cleanup acb-unloaded-raw=%d\n",result);
         }
         if (api) {
-            if (loaded) { bool ok=api->Unload(); fprintf(stderr,"[hevc-probe] cleanup unload=%d\n",ok); }
+            if (loaded) {
+                bool ok=api->Unload();
+                fprintf(stderr,"[hevc-probe] cleanup unload=%d\n",ok);
+                clean=clean && ok;
+            }
             delete api; api=nullptr;
         }
         if (acb) {
-            if (acb_initialized) { int result=AcbAPI_finalize(acb); fprintf(stderr,"[hevc-probe] cleanup acb-finalize-raw=%d\n",result); }
+            if (acb_initialized) {
+                int result=AcbAPI_finalize(acb);
+                fprintf(stderr,"[hevc-probe] cleanup acb-finalize-raw=%d\n",result);
+                clean=clean && result!=0;
+            }
             AcbAPI_destroy(acb); fprintf(stderr,"[hevc-probe] cleanup acb-destroy-called\n"); acb=0;
         }
         loaded=false;
+        return clean;
     }
 };
 }
@@ -227,11 +238,10 @@ int main(int argc,char **argv) {
     if (null_fd>=0) { dup2(null_fd,STDOUT_FILENO); close(null_fd); }
     signal(SIGTERM,stop_signal); signal(SIGINT,stop_signal); signal(SIGALRM,hard_deadline);
     alarm(45);
-    const int width=uhd?3840:1920,height=uhd?2160:1080;
-    if (uhd) {
-        fprintf(stderr,"[hevc-probe] uhd-blocked: 1080p decoding and presentation remain unproven on this B7\n"); return 2;
-    }
-    const std::string file=dir+(uhd?"/sample-uhd.hevc":"/sample-1080p.hevc");
+    auto run_case=[&](int width,int height,const char *phase)->int {
+    fprintf(stderr,"[hevc-probe] phase-begin name=%s bounds=%dx%d rss_kib=%d\n",
+            phase,width,height,rss_kib());
+    const std::string file=dir+(width==3840?"/sample-uhd.hevc":"/sample-1080p.hevc");
     std::ifstream in(file.c_str(),std::ios::binary|std::ios::ate);
     if (!in || in.tellg()<16 || in.tellg()>std::streamoff(hevc_probe::kMaxFile)) {
         fprintf(stderr,"[hevc-probe] sample-size-or-open-failed\n"); return 2;
@@ -358,8 +368,9 @@ int main(int argc,char **argv) {
                 player.events.playing_event_ms.load()? (long long)(player.events.playing_event_ms.load()-probe_start_ms):-1LL,
                 player.events.first_frame_event_ms.load()? (long long)(player.events.first_frame_event_ms.load()-probe_start_ms):-1LL,
                 play_attempts);
+        bool eos_accepted=false;
         if (hevc_probe::send_eos_after_feed(accepted,sample.units.size(),player.events.failed,stop_requested)) {
-            const bool eos_accepted=player.api->pushEOS();
+            eos_accepted=player.api->pushEOS();
             fprintf(stderr,"[hevc-probe] eos-accepted=%d\n",eos_accepted);
         } else fprintf(stderr,"[hevc-probe] eos-skipped reason=incomplete-or-failed-feed\n");
         const int64_t drain_start=now_ms();
@@ -380,15 +391,41 @@ int main(int argc,char **argv) {
         fprintf(stderr,"[hevc-probe] evidence: Feed acceptance is input only; FRAMEREADY is a firmware callback; "
             "ACB window is requested geometry; native output-plane resolution remains unmeasured\n");
         const bool control_path=!stop_requested && !player.events.failed && player.events.loaded &&
-            player.events.playing && accepted==sample.units.size() &&
+            player.events.playing && player.acb_playing && eos_accepted &&
+            accepted==sample.units.size() &&
             player.events.video_width==width && player.events.video_height==height;
-        rc=control_path?0:1;
-        fprintf(stderr,"[hevc-probe] control-path=%s frame_ready_observed=%d "
+        const bool cleanup_ok=player.close();
+        rc=control_path && cleanup_ok?0:1;
+        fprintf(stderr,"[hevc-probe] control-path=%s cleanup_ok=%d frame_ready_observed=%d "
                 "decoder-path=UNPROVEN (neither callback nor video-info proves display)\n",
-                control_path?"COMPLETE":"INCOMPLETE",player.events.frame_ready.load()>initial_frames);
+                control_path?"COMPLETE":"INCOMPLETE",cleanup_ok,
+                player.events.frame_ready.load()>initial_frames);
     } while(false);
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
     SDL_Quit();
+    fprintf(stderr,"[hevc-probe] phase-end name=%s control_path=%s rc=%d rss_kib=%d\n",
+            phase,rc==0?"complete":"incomplete",rc,rss_kib());
+    return rc;
+    };
+    int rc=0;
+    if (uhd) {
+        fprintf(stderr,"[hevc-probe] uhd-gate: rerunning 1080p control path in this launch; saved flags ignored\n");
+        hevc_probe::CurrentLaunchUhdGate gate;
+        rc=run_case(1920,1080,"fresh-1080p-gate");
+        gate.record_1080p_control_result(rc,stop_requested);
+        if (gate.permits_uhd()) {
+            fprintf(stderr,"[hevc-probe] uhd-gate=passed source=current-launch-control-path\n");
+            usleep(500000); // Let the prior ACB/Starfish teardown release its media resource.
+            if (stop_requested) {
+                fprintf(stderr,"[hevc-probe] uhd-gate=blocked reason=signal-during-transition signal=%d\n",
+                        int(stop_signal_number));
+                rc=1;
+            } else {
+            rc=run_case(3840,2160,"experimental-uhd");
+            }
+        } else fprintf(stderr,"[hevc-probe] uhd-gate=blocked reason=1080p-incomplete-or-signal rc=%d signal=%d\n",
+                       rc,int(stop_signal_number));
+    } else rc=run_case(1920,1080,"1080p");
     fprintf(stderr,"[hevc-probe] exit=%d\n",rc); alarm(0); return rc;
 }

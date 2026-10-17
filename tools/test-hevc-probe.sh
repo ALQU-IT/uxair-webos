@@ -15,3 +15,7 @@ c++ -std=c++11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame
   tests/hevc_feed_test.cpp -o build/tests/hevc-feed-test
 build/tests/hevc-feed-test
 echo 'PASS: sanitizer-backed Feed reply classification and partial-feed EOS safety'
+c++ -std=c++11 -g -O1 -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc \
+  tests/hevc_gate_test.cpp -o build/tests/hevc-gate-test
+build/tests/hevc-gate-test
+echo 'PASS: current-launch UHD gate excludes missing, failed, and interrupted 1080p runs'

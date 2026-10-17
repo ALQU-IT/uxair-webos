@@ -1,5 +1,7 @@
 # Milestone 5D: bounded 1080p HEVC follow-up probe
 
+The subsequent [Milestone 5E UHD experiment](MILESTONE5E.md) documents the 0.1.2 current-launch 1080p gate and remote UHD procedure. The instructions below describe probe 0.1.1.
+
 ## What the B7 run established
 
 The 0.1.0 probe accepted four of 30 HEVC Main 8-bit access units. The owner's full log has no fifth Feed attempt, Feed rejection, retry exhaustion, timeout, or Starfish error. It does have `acb-sink=0 loaded-state-raw=1`, an accepted Play call and a later Starfish state event. The probe set `events.failed=true` solely because `AcbAPI_setSinkType` returned zero. Its `for` condition then silently stopped at the next frame. The working H.264 receiver calls the same ACB functions but does not treat this undocumented sink return as a fatal Feed condition. Thus the **4/30 stop was application logic**, not evidence of an HEVC Feed rejection or a decoder limit. Zero retries in the old result means no recognized `BufferFull` or `Pending` response was observed for those four accepted calls.

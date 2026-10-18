@@ -7,6 +7,7 @@
 #include "shell.h"
 #include "identity.h"
 #include "settings.h"
+#include "capabilities.h"
 #include "usage_stats.h"
 #include <cstdio>
 #include <cstdlib>

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <string>
 #include "settings.h"
+#include "media_open_failure.h"
 class StarfishMediaAPIs;
 enum class FeedResult { Accepted, Retry, Error };
 class Media {
@@ -18,6 +19,7 @@ public:
     void eos();
     void pause(bool paused);
     void close();
+    MediaOpenFailure open_failure() const { return open_failure_; }
     std::atomic<bool> ready{false}, playing{false}, ended{false}, failed{false};
     std::atomic<unsigned> frames{0};
     std::atomic<int64_t> last_frame_event_ns{0};
@@ -34,6 +36,7 @@ private:
     long acb_ = 0, task_ = 0;
     bool loaded_ = false, sink_attached_ = false, play_requested_ = false, acb_playing_ = false;
     unsigned play_attempts_ = 0;
+    MediaOpenFailure open_failure_ = MediaOpenFailure::None;
     std::atomic<bool> video_info_pending_{false};
     // Firmware callbacks and Feed run on separate threads.
     struct Impl;

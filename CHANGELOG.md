@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- RC5: runtime APPID/ACB/Starfish identity diagnostics, media-open failure-stage reporting, actionable playback failure status, and baseline payload/identity regression tests.
+- RC5: exact 1080p H.264/30 payload equivalence coverage plus sanitizer tests for the startup error-message mapping.
 - RC4: atomic pairing-key persistence outside the UI-shared receiver lock, RAOP callback quiescence before receiver-state reset, and bounded PIN-free pairing lifecycle diagnostics.
 - RC4: sanitizer-backed regression coverage for cancellation followed by successful pairing and immediate UI-state dismissal.
 - UxAir application identity, launcher branding, and 80/256/512 px icon assets, packaged under a new app ID to preserve existing UxPlay installations and pairing data.

@@ -9,6 +9,11 @@ c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/audio_session_test.cp
 build/tests/audio-session-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/media_payload_test.cpp src/settings.cpp -o build/tests/media-payload-test
 build/tests/media-payload-test
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
+  tests/media_open_failure_test.cpp -o build/tests/media-open-failure-test
+build/tests/media-open-failure-test
+python3 tests/media_identity_test.py
+python3 tests/media_failure_path_test.py
 if [[ "${1:-}" == "--diagnostics-only" ]]; then
   exit 0
 fi

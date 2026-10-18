@@ -62,18 +62,26 @@ void Media::event(int type, int64_t value, const char *message, void *user) {
 }
 bool Media::open(const char *app_id, int width, int height, bool audio, int rate,
                  int video_source_buffer_bytes, int canvas_width, int canvas_height, MirrorCodec codec, int max_fps, bool audio_only) {
+    open_failure_=MediaOpenFailure::None;
     MediaRateFields frame_rate;
     if ((!audio_only && (width<=0 || height<=0 || video_source_buffer_bytes<1048576 || video_source_buffer_bytes>2097152)) ||
         !media_rate_fields(max_fps,frame_rate) ||
         (!audio_only && codec==MirrorCodec::H264 && int64_t(width)*height>1920*1080) ||
-        (!audio_only && codec==MirrorCodec::ExperimentalHevc && int64_t(width)*height>3840*2160))
+        (!audio_only && codec==MirrorCodec::ExperimentalHevc && int64_t(width)*height>3840*2160)) {
+        open_failure_=MediaOpenFailure::InvalidConfiguration;
+        fprintf(stderr,"[media-init] failure=invalid-configuration\n");
         return false;
+    }
     VideoWindow window={};
     if(!audio_only) {
         if (!canvas_width) canvas_width=width;
         if (!canvas_height) canvas_height=height;
         window=fit_video_window(width,height,canvas_width,canvas_height);
-        if (!window.width || !window.height) return false;
+        if (!window.width || !window.height) {
+            open_failure_=MediaOpenFailure::InvalidConfiguration;
+            fprintf(stderr,"[media-init] failure=invalid-display-window\n");
+            return false;
+        }
     }
     close();
     ready = playing = ended = failed = false;
@@ -91,9 +99,15 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
     fprintf(stderr,"[media-init] ACB create begin\n");
     acb_ = AcbAPI_create();
     fprintf(stderr,"[media-init] ACB create end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
+    if(!acb_) {
+        open_failure_=MediaOpenFailure::AcbCreate;
+        fprintf(stderr,"[media-init] failure=acb-create\n");
+        close();return false;
+    }
     phase=monotonic_ns();
     fprintf(stderr,"[media-init] ACB initialize begin\n");
-    if (!acb_ || !AcbAPI_initialize(acb_, PLAYER_TYPE_MSE, app_id, acb_event)) {
+    if (!AcbAPI_initialize(acb_, PLAYER_TYPE_MSE, app_id, acb_event)) {
+        open_failure_=MediaOpenFailure::AcbInitialize;
         fprintf(stderr, "[media] ACB initialization failed\n"); close(); return false;
     }
     fprintf(stderr,"[media-init] ACB initialize end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
@@ -104,16 +118,18 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
     phase=monotonic_ns();
     fprintf(stderr,"[media-init] ACB media ID begin\n");
     if (!AcbAPI_setMediaId(acb_, api_->getMediaID())) {
+        open_failure_=MediaOpenFailure::MediaIdRegistration;
         fprintf(stderr, "[media] ACB media registration failed\n"); close(); return false;
     }
     fprintf(stderr,"[media-init] ACB media ID end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
     const std::string payload=starfish_load_payload(app_id,codec==MirrorCodec::ExperimentalHevc?"H265":"H264",
         width,height,audio,rate,video_source_buffer_bytes,frame_rate,audio_only);
+    fprintf(stderr,"[media-identity] acb-app-id=%s starfish-app-id=%s source=shared-runtime-id\n",app_id,app_id);
     fprintf(stderr, "[media] Load mode=%s max_fps=%d %s\n", audio_only?"audio-only":"mirroring",max_fps,payload.c_str());
     phase=monotonic_ns();
     loaded_ = api_->Load(payload.c_str(), event, this);
     fprintf(stderr,"[media-init] Starfish Load end ms=%.2f success=%d\n",(monotonic_ns()-phase)/1e6,int(loaded_));
-    if (!loaded_) { close(); return false; }
+    if (!loaded_) { open_failure_=MediaOpenFailure::StarfishLoad;close(); return false; }
     phase=monotonic_ns();
     if(!audio_only) {
         AcbAPI_setDisplayWindow(acb_, window.x, window.y, window.width, window.height, true, &task_);

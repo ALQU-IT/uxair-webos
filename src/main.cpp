@@ -95,7 +95,11 @@ int main() {
         if(receiver.start(state_dir,requested))return true;
         receiver.stop();return false;
     };
-    const char *app_id=getenv("APPID");if(!app_id)app_id=UXAIR_APP_ID;
+    const char *runtime_app_id=getenv("APPID");
+    const char *app_id=runtime_app_id&&*runtime_app_id?runtime_app_id:UXAIR_APP_ID;
+    fprintf(stderr,"[media-identity] runtime-source=%s runtime-app-id=%s compiled-app-id=%s match=%d\n",
+            runtime_app_id&&*runtime_app_id?"APPID":"compiled-fallback",app_id,UXAIR_APP_ID,
+            int(std::string(app_id)==UXAIR_APP_ID));
     Media media;AudioDecoder decoder;HevcStream hevc;HevcStartupGate hevc_startup;
     UiNavigation nav;
     UiPage& page=nav.page;
@@ -175,6 +179,7 @@ int main() {
         hevc_first_feed_logged=false;
     };
     auto recover_decoder=[&](bool failed_hevc,const char *reason){
+        const bool starfish_load_failure=media.open_failure()==MediaOpenFailure::StarfishLoad;
         if(failed_hevc) {
             fallback_reason=reason;
             fprintf(stderr,"[codec] fallback reason=%s next-session=H264-720p\n",reason);
@@ -184,7 +189,7 @@ int main() {
             set_mirror_fps(settings,30);
             if(activate_profile(settings)) {
                 if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] fallback save failed\n");
-                receiver.show("HEVC failed. H.264 720p active; reconnect sender.");
+                receiver.show(starfish_load_failure?"Starfish Load failed. H.264 720p active; reconnect sender.":"HEVC failed. H.264 720p active; reconnect sender.");
             } else {
                 settings=previous;
                 bool restored=activate_profile(previous);
@@ -198,7 +203,7 @@ int main() {
             if(activate_profile(settings)) {
                 if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] 30 FPS recovery save failed\n");
                 fprintf(stderr,"[settings] decoder recovery lowered advertised max FPS to 30\n");
-                receiver.show("60 FPS failed. Restored 30 FPS; reconnect sender.");
+                receiver.show(starfish_load_failure?"Starfish Load failed. Restored 30 FPS; reconnect sender.":"60 FPS failed. Restored 30 FPS; reconnect sender.");
             } else {
                 settings=previous;
                 bool restored=activate_profile(previous);
@@ -206,13 +211,21 @@ int main() {
             }
             return;
         }
-        if(settings.width!=1920) {receiver.show("TV decoder failed. Connect again.");return;}
+        if(settings.width!=1920) {
+            receiver.show(starfish_load_failure?"Starfish Load failed. Adjust Settings or reconnect.":"TV decoder failed. Connect again.");return;
+        }
         ProfileSwitchResult result=switch_mirror_profile(settings,1280,720,activate_profile);
         if(result==ProfileSwitchResult::Applied) {
             if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] recovery save failed\n");
-            receiver.show("1080p decoder failed. Restored 720p; reconnect sender.");
+            receiver.show(starfish_load_failure?"Starfish Load failed. Restored 720p; reconnect sender.":"1080p decoder failed. Restored 720p; reconnect sender.");
             fprintf(stderr,"[settings] 1080p decoder failed; restored 720p advertisement\n");
-        } else receiver.show("Decoder failed. Restart app and select 720p.");
+        } else receiver.show(starfish_load_failure?"Starfish Load failed. Adjust Settings or reconnect.":"Decoder failed. Restart app and select 720p.");
+    };
+    auto report_media_start_failure=[&](bool failed_hevc,const char *reason){
+        const MediaOpenFailure failure=media.open_failure();
+        finish(true);
+        recover_decoder(failed_hevc,reason);
+        receiver.show(std::string(media_open_failure_message(failure))+" Settings remain available; reconnect to retry.");
     };
     auto recover_playback=[&](const char *reason){
         const bool audio_only=audio_only_playback;
@@ -630,7 +643,7 @@ int main() {
             if(!media_opened) {
                 have_pending=false;audio_only_failed=true;
                 fprintf(stderr,"[audio-only] receiver negotiated audio but Starfish load failed; mirroring remains available\n");
-                receiver.show("Audio-only playback could not start. Mirroring is still available.");
+                receiver.show(std::string(media_open_failure_message(media.open_failure()))+" Audio-only playback stopped; mirroring remains available.");
                 continue;
             }
             opened=true;audio_only_playback=true;session_codec=MirrorCodec::H264;
@@ -703,7 +716,7 @@ int main() {
             fprintf(stderr,"[media-init] open_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
             if(!media_opened) {
                 bool was_hevc=session_codec==MirrorCodec::ExperimentalHevc;
-                finish(true);recover_decoder(was_hevc,"starfish-load-failed");continue;
+                report_media_start_failure(was_hevc,"starfish-load-failed");continue;
             }
             if(incoming_hevc) {
                 hevc_startup.accept_load(now_ns());hevc_preroll_wait_logged=hevc_first_feed_logged=false;
@@ -771,7 +784,7 @@ int main() {
                 bool media_opened=info.keyframe && media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,
                     std::min(settings.width,1920),std::min(settings.height,1080),MirrorCodec::H264,settings.max_fps);
                 fprintf(stderr,"[media-init] reopen_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
-                if(!media_opened) {finish(true);recover_decoder(false,"h264-reopen-failed");continue;}
+                if(!media_opened) {report_media_start_failure(false,"h264-reopen-failed");continue;}
                 origin=pending.timestamp;start=now_ns();pts=0;audio_end=0;audio_started=false;decoder.reset();
                 video_feed_timing.reset();
                 live_feed_last=0;
@@ -818,7 +831,7 @@ int main() {
                     MirrorCodec::ExperimentalHevc,settings.max_fps);
                 fprintf(stderr,"[codec] reinitialize=%u input=%dx%d load_ms=%.2f success=%d\n",
                     ++decoder_reinitializations,width,height,(now_ns()-open_begin)/1e6,int(media_opened));
-                if(!media_opened) {finish(true);recover_decoder(true,"hevc-reopen-failed");continue;}
+                if(!media_opened) {report_media_start_failure(true,"hevc-reopen-failed");continue;}
                 hevc_startup.accept_load(now_ns());hevc_preroll_wait_logged=hevc_first_feed_logged=false;
                 hevc_schedule_wait_logged=false;stall=0;last_paused=false;
                 fprintf(stderr,"[codec-start] load-accepted=1 reason=parameter-change input=%dx%d\n",width,height);

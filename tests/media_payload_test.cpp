@@ -21,7 +21,7 @@ int main() {
     assert(audio.find("\"srcBufferLevelAudio\"")!=std::string::npos);
     assert(audio.find("\"video\"")==std::string::npos);
     assert(audio.find("\"videoFpsValue\"")==std::string::npos);
-    assert(audio.find("\"adaptiveStreaming\"")==std::string::npos);
+    assert(audio.find("\"adaptiveStreaming\"")==std::string::npos);\n    assert(audio.size()>=4 && audio.substr(audio.size()-4)=="}}]}");
 
     const std::string video=starfish_load_payload("com.github.depius.uxair","H265",3840,2160,true,44100,2097152,rate,false);
     assert(video.find("\"codec\":{\"video\":\"H265\",\"audio\":\"PCM\"}")!=std::string::npos);

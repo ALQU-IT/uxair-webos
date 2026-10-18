@@ -24,6 +24,8 @@ inline std::string starfish_load_payload(const char *app_id, const char *video_c
       << (audio_only?1024:video_source_buffer_bytes) << "}}}";
     if(!audio_only) p << ",\"adaptiveStreaming\":{\"audioOnly\":false,\"maxWidth\":" << width
                       << ",\"maxHeight\":" << height << ",\"maxFrameRate\":" << frame_rate.max_frame_rate << "}";
-    // externalStreamingInfo and adaptiveStreaming (when present) are closed above.\n    // Close the option and args item before the array and root object.\n    p << "}}]}";
+    // externalStreamingInfo and adaptiveStreaming (when present) are closed above.
+    // Close the option and args item before the array and root object.
+    p << "}}]}";
     return p.str();
 }

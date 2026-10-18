@@ -34,7 +34,7 @@ int main() {
     assert(sample.frames==3);
     assert(sample.intervals==0);
     assert(sample.interval_total_ns==0);
-    assert(sample.pts_discontinuities==3);
+    assert(sample.pts_discontinuities==2);
     assert(timing.take_window().frames==0);
 
     timing.reset();

@@ -76,9 +76,11 @@ int main() {
     assert(attempts==2 && settings.width==1280); // failed activation rolls back
     assert(switch_mirror_profile(settings,1920,1080,[&](const Settings&){return false;})==ProfileSwitchResult::Unavailable);
     assert(settings.width==1280 && settings.height==720);
-    assert(switch_mirror_profile(settings,3840,2160,[&](const Settings&){++attempts;return true;})==ProfileSwitchResult::Unchanged);
-    assert(attempts==2);
+    assert(switch_mirror_profile(settings,3840,2160,[&](const Settings& proposed){++attempts;return proposed.codec==MirrorCodec::ExperimentalHevc;})==ProfileSwitchResult::Applied);
+    assert(attempts==3 && settings.width==3840 && settings.codec==MirrorCodec::ExperimentalHevc);
     assert(switch_mirror_profile(settings,1920,1080,[&](const Settings&){return true;})==ProfileSwitchResult::Applied);
+    assert(settings.width==1920 && settings.codec==MirrorCodec::ExperimentalHevc);
+    assert(set_mirror_codec(settings,MirrorCodec::H264));
     assert(input_fits_mirror_profile(settings,1920,1080));
     assert(input_fits_mirror_profile(settings,1080,1920));
     Settings h264_1080_60=settings;assert(set_mirror_fps(h264_1080_60,60));

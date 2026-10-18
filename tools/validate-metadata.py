@@ -31,7 +31,7 @@ def main():
     changelog = (ROOT / 'CHANGELOG.md').read_text()
     if f'## [{version}]' not in changelog:
         fail('CHANGELOG does not contain the current version')
-    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE_NOTES_1.0.0_RC.md', 'docs/REPOSITORY_METADATA.md']:
+    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE_NOTES_1.0.0_RC.md', 'docs/RELEASE_NOTES_1.0.0_RC2.md', 'docs/REPOSITORY_METADATA.md']:
         if not (ROOT / path).is_file():
             fail(f'missing required documentation: {path}')
     tracked_sources = list((ROOT / 'src').glob('*.cpp'))
@@ -50,6 +50,14 @@ def main():
             fail(f'invalid {size}px UxAir icon asset')
     if not (ROOT / 'assets/uxair-icon.svg').is_file():
         fail('missing scalable UxAir icon artwork')
+    funding = (ROOT / '.github/FUNDING.yml').read_text().strip()
+    if funding != 'buy_me_a_coffee: depius':
+        fail('GitHub funding must use the confirmed Buy Me a Coffee username')
+    readme = (ROOT / 'README.md').read_text()
+    if 'https://buymeacoffee.com/depius' not in readme or 'assets/buy-me-a-coffee.svg' not in readme:
+        fail('README donation badge must link to the confirmed creator profile')
+    if not (ROOT / 'assets/bmc-qr.bmp').is_file():
+        fail('missing bundled donation QR bitmap')
     print(f'PASS: {EXPECTED_NAME} {version} metadata is consistent')
 
 if __name__ == '__main__':

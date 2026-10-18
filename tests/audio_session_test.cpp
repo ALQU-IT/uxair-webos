@@ -21,5 +21,8 @@ int main() {
         intent.codec=codec;
         assert(!standalone_audio_candidate(intent,false)); // unsupported RAOP packet formats
     }
+    assert(!standalone_audio_yield_to_video(false,true));
+    assert(!standalone_audio_yield_to_video(true,false));
+    assert(standalone_audio_yield_to_video(true,true));
     std::puts("PASS: standalone RAOP audio is gated by negotiated codec, usingScreen, and mirror state");
 }

@@ -21,6 +21,11 @@ build/tests/media-rate-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/ui_navigation_test.cpp src/ui_navigation.cpp -o build/tests/ui-navigation-test
 build/tests/ui-navigation-test
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
+  tests/pairing_ui_test.cpp src/ui_navigation.cpp -o build/tests/pairing-ui-test
+build/tests/pairing-ui-test
+python3 tests/donation_qr_test.py
+python3 tests/pairing_secret_log_test.py
 cc -std=c11 -D_POSIX_C_SOURCE=200809L -g -fsanitize=address,undefined -Isrc \
   tests/direct_request_diag_test.c src/direct_request_diag.c -o build/tests/direct-request-diag-test
 build/tests/direct-request-diag-test

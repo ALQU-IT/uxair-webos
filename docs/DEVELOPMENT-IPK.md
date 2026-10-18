@@ -1,10 +1,11 @@
 # UxAir 1.0.0 release-candidate package
 
-The `Build UxAir 1.0.0 ARMv7 release candidate` workflow runs the sanitizer-backed host tests before it builds the ARMv7 application on Apple Silicon macOS. It validates the ELF ABI and IPK contents, generates corresponding source and checksums, then uploads one artifact. The artifact is not a GitHub Release and does not publish a tag.
+The `Build UxAir 1.0.0 RC2 ARMv7 candidate` workflow runs the sanitizer-backed host tests before it builds the ARMv7 application on Apple Silicon macOS. It validates the ELF ABI and IPK contents, including the offline donation QR, generates corresponding source and checksums, then uploads one artifact. The artifact is not a GitHub Release and does not publish a tag.
 
 The artifact contains:
 
 - `com.github.depius.uxair_1.0.0_arm.ipk` — UxAir under its separate app ID.
+- `bmc-qr.bmp` — 407×407 local QR bitmap encoded for `https://buymeacoffee.com/depius`, also bundled inside the IPK.
 - `uxair-webos-1.0.0-source.tar.gz` — corresponding sources, pinned UxPlay source, dependency source archives, notices, and build instructions.
 - `ELF_REPORT.txt` — ARM ELF32 soft-float and maximum required GLIBC version from `tools/verify-elf.py`.
 - `SHA256SUMS` — checksums for the IPK and source archive.
@@ -12,7 +13,7 @@ The artifact contains:
 
 ## Download and verify
 
-1. Download the `uxair-1.0.0-armv7-rc-<commit>` artifact from the successful GitHub Actions run and extract it.
+1. Download the `uxair-1.0.0-armv7-rc2-<commit>` artifact from the successful GitHub Actions run and extract it.
 2. Confirm `BUILD_COMMIT.txt` matches the run's source commit. Verify both files:
 
    ```sh

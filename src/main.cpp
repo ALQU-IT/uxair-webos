@@ -98,7 +98,8 @@ int main() {
     UiNavigation nav;
     UiPage& page=nav.page;
     int& focus=nav.focus;
-    bool ui_visible=true,session_success=false;
+    bool ui_visible=true,session_success=false,donation_open=false;
+    std::string last_rendered_pin;
     uint64_t session_started_utc=0, ingress_at_start=0, drops_at_start=0,video_drops_at_start=0,hardware_decoder_errors=0;
     int observed_width=0,observed_height=0;
     MirrorCodec session_codec=MirrorCodec::H264;
@@ -127,7 +128,7 @@ int main() {
     DurationWindow video_parse_time, video_schedule_late, video_pending_time;
     DurationWindow video_feed_time, audio_feed_time, media_tick_time, loop_gap_time;
     int64_t previous_loop=0;
-    auto finish=[&](bool error=false){
+    auto finish=[&](bool error=false,bool preserve_receiver=false,bool preserve_pending=false){
         if(opened && media.playing && (video_count || (audio_only_playback && audio_count)))session_success=true;
         if(error && !opened) {++usage.session_errors;save_usage_stats(state_dir+"/usage-v1",usage);}
         if(opened) {
@@ -157,7 +158,7 @@ int main() {
             }
             if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] could not save usage history\n");
         }
-        media.close();decoder.reset();hevc.reset();hevc_startup.reset();receiver.disconnect();opened=false;have_pending=false;
+        media.close();decoder.reset();hevc.reset();hevc_startup.reset();if(!preserve_receiver)receiver.disconnect();opened=false;have_pending=preserve_pending;
         origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;audio_only_playback=false;audio_flush_paused=false;
         session_success=false;session_started_utc=0;observed_width=observed_height=0;hardware_decoder_errors=0;
         nav=UiNavigation();ui_visible=true;
@@ -264,13 +265,11 @@ int main() {
             while(rows.size()<6)rows.push_back(UiRow("","","",false));
             rows.push_back(UiRow("Reset usage history","Confirm","Pairing and receiver identity are retained"));
         } else if(which==UiPage::System) {
-            rows.push_back(UiRow("UxAir version",build_version,"Release candidate · source commit "+build_commit,false));
-            rows.push_back(UiRow("Author and adaptation","Matej Skuhala / @depius","Based on UxPlay by FDH2 and the webOS port by Daniel Filho",false));
-            rows.push_back(UiRow("Project","github.com/depius/uxair-webos","Compatible with AirPlay; independent community project",false));
+            rows.push_back(UiRow("UxAir",build_version,"AirPlay Receiver for webOS",false));
+            rows.push_back(UiRow("Developer","Matej Skuhala / @depius","Based on UxPlay by FDH2 and the original webOS port by Daniel Filho",false));
+            rows.push_back(UiRow("Project","github.com/depius/uxplay-webos","Compatible with AirPlay; independent community project",false));
             rows.push_back(UiRow("License","GPL-3.0-or-later","See bundled license and third-party notices",false));
-            rows.push_back(UiRow("Support development","Optional · account not configured","UxAir remains free and open source",false));
-            rows.push_back(UiRow("Compatibility","Rooted LG webOS TVs","Physical validation: LG OLED B7 · webOS 3.9",false));
-            rows.push_back(UiRow("HDR10 / Main10","Not supported","SDR only; native output-plane resolution is unverified",false));
+            rows.push_back(UiRow("Enjoying the app? Buy me a coffee.","","Optional support · UxAir is free and open source"));
         }
         return rows;
     };
@@ -305,6 +304,16 @@ int main() {
             default:break;
         }
         return d;
+    };
+    auto draw_page=[&](const std::string& subtitle,const std::string& footer) {
+        const std::string pin=receiver.pin();
+        const UiModal modal=active_ui_modal(!pin.empty(),donation_open);
+        if(modal==UiModal::Donation) shell.donation_panel();
+        else {
+            UiDialog d=dialog_for();
+            shell.page(page,subtitle,rows_for(page),focus,footer,nav.dialog==UiDialogKind::None?nullptr:&d);
+            if(modal==UiModal::Pairing)shell.pairing_popup(pin);
+        }
     };
     auto apply_resolution=[&](int target) {
         if(!receiver.idle_for_profile_change()) {receiver.show("Disconnect sender before changing quality.");return;}
@@ -367,6 +376,15 @@ int main() {
         previous_loop=now;
         Action action=shell.action();
         if(action==Action::Exit)break;
+        const std::string pairing_pin=receiver.pin();
+        const bool pairing_changed=pairing_pin!=last_rendered_pin;
+        if(pairing_changed) {
+            last_rendered_pin=pairing_pin;last_ui=0;
+            if(pairing_pin.empty()) {
+                if(opened && !ui_visible)shell.transparent();
+            } else shell.pairing_popup(pairing_pin);
+        }
+        if((!pairing_pin.empty() || donation_open) && action!=Action::Back)action=Action::None;
         if(opened && !ui_visible && action==Action::Select) {
             ui_visible=true;nav.category(2);action=Action::None;last_ui=0;
         }
@@ -384,7 +402,9 @@ int main() {
             }
         }
         if(action==Action::Back) {
-            if(ui_visible && nav.dialog!=UiDialogKind::None) {nav.back();last_ui=0;}
+            if(!pairing_pin.empty()) {}
+            else if(donation_open) {donation_open=false;last_ui=0;}
+            else if(ui_visible && nav.dialog!=UiDialogKind::None) {nav.back();last_ui=0;}
             else if(opened && ui_visible) {ui_visible=false;shell.transparent();last_ui=0;}
             else if(ui_visible && nav.back()) {last_ui=0;}
             else if(opened||receiver.mirror||!receiver.pin().empty())finish();
@@ -424,6 +444,7 @@ int main() {
                     else if(page==UiPage::Diagnostics && focus==6) {page=UiPage::History;focus=0;}
                     else if(page==UiPage::History && focus==6)nav.begin(UiDialogKind::ResetHistory,0);
                     else if(page==UiPage::Media && focus==0)nav.begin(UiDialogKind::AudioDelay,(receiver.audio_delay_ms.load()+1000)/25);
+                    else if(page==UiPage::System && focus==4)donation_open=true;
                 }
             }
             last_ui=0;
@@ -485,9 +506,7 @@ int main() {
             }
         }
         if(!opened && now-last_ui>500000000) {
-            std::string subtitle=receiver.pin().empty()?receiver.status():"Pairing PIN: "+receiver.pin();
-            UiDialog d=dialog_for();
-            shell.page(page,subtitle,rows_for(page),focus,"Left/Right sections  •  Up/Down focus  •  OK select  •  Back cancel",nav.dialog==UiDialogKind::None?nullptr:&d);
+            draw_page(receiver.status(),"Left/Right sections  •  Up/Down focus  •  OK select  •  Back cancel");
             last_ui=now;
         }
         if(now-last_live>1000000000LL) {
@@ -519,11 +538,11 @@ int main() {
                     if(settings.diagnostics==DiagnosticsMode::Detailed)
                         lines.push_back("RSS "+(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB":"N/A")+"  Session "+duration_text(uint64_t(std::max<int64_t>(0,now-session_started))/1000000));
                     shell.overlay(lines);
+                    const std::string pin=receiver.pin();if(!pin.empty())shell.pairing_popup(pin);
             }
         }
         if(session_ui_redraw_due(opened,ui_visible,last_ui,now)) {
-            UiDialog d=dialog_for();
-            shell.page(page,"Live session  •  Back returns to playback",rows_for(page),focus,"Incoming and Feed are receiver rates  •  Displayed FPS unavailable",nav.dialog==UiDialogKind::None?nullptr:&d);
+            draw_page("Live session  •  Back returns to playback","Incoming and Feed are receiver rates  •  Displayed FPS unavailable");
             last_ui=now;
         }
         if(now-last_stats>5000000000LL) {
@@ -697,9 +716,9 @@ int main() {
                     incoming_hevc?"HEVC":"H264",width,height,settings.width,settings.height,settings.max_fps,int(receiver.has_audio),
                     incoming_hevc?"Main":"H264",incoming_hevc?8:0);
         }
-        if(audio_only_playback && pending.video) {
-            fprintf(stderr,"[audio-only] ignoring unexpected video packet in standalone RAOP session\n");
-            have_pending=false;
+        if(standalone_audio_yield_to_video(audio_only_playback,pending.video)) {
+            fprintf(stderr,"[audio-only] video stream arrived; closing audio-only Starfish session and starting mirroring\n");
+            finish(false,true,true);
             continue;
         }
         int64_t pts=pending.timestamp>=origin ? int64_t(pending.timestamp-origin) : -int64_t(origin-pending.timestamp);

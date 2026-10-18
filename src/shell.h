@@ -36,13 +36,16 @@ public:
     void page(UiPage page, const std::string& subtitle, const std::vector<UiRow>& rows, int selected,
               const std::string& footer, const UiDialog *dialog = nullptr);
     void overlay(const std::vector<std::string>& lines);
+    void donation_panel();
+    void pairing_popup(const std::string& pin);
     void transparent();
     ~Shell();
 private:
     InputMapper input_{SDL_SCANCODE_UNKNOWN, SDL_SCANCODE_UNKNOWN};
     bool pointer_select_ = false;
     int pointer_x_ = 0, pointer_y_ = 0;
-    _TTF_Font *font_=nullptr, *large_=nullptr, *small_=nullptr;
+    _TTF_Font *font_=nullptr, *large_=nullptr, *small_=nullptr, *pin_font_=nullptr, *pin_font_small_=nullptr;
+    SDL_Texture *donation_qr_=nullptr;
     void text(const std::string&,int y,_TTF_Font*,SDL_Color);
     void text_at(const std::string&,int x,int y,int max_width,_TTF_Font*,SDL_Color);
 };

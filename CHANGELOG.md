@@ -11,6 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - UxAir application identity, launcher branding, and 80/256/512 px icon assets, packaged under a new app ID to preserve existing UxPlay installations and pairing data.
 - Standalone RAOP audio playback using the existing Starfish BUFFERSTREAM and PCM output path for negotiated AAC-LC, AAC-ELD, ALAC, and PCM streams.
 - Audio session negotiation and lifecycle diagnostics, volume/mute handling, existing RAOP pause/flush/reconnect handling, and focused audio-mode tests.
+- A large pairing PIN overlay, success/cancel/reset lifecycle state, a dedicated Buy Me a Coffee QR panel, and deterministic QR asset checks.
+- Confirmed Buy Me a Coffee profile integration in the About page, README badge, and GitHub funding metadata.
 - UxAir release documentation, source-package instructions, ARMv7 RC artifact workflow, checksum generation, and separate Audio session history.
 
 ### Changed
@@ -22,7 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Limitations
 
 - Standalone AirPlay audio is implemented but awaits physical LG B7 validation; protected streams, unsupported protocols, and AirPlay 2 are not modified or claimed.
-- Buy Me a Coffee is not configured; no creator username or donation URL is published.
+- Standalone AirPlay audio still awaits physical LG B7 validation, including Apple Music and sender pause/resume behavior.
+- The original owner-provided QR image was not present in the RC2 attachment or workspace; the bundled offline image is generated for the confirmed profile URL.
 - HDR10/Main10, native 4K scanout, and output/display FPS measurement remain unavailable.
 
 ## [Unreleased]

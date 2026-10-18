@@ -17,3 +17,7 @@ inline bool standalone_audio_candidate(const AirPlayAudioIntent& intent, bool mi
     const bool decodable = intent.codec == 1 || intent.codec == 2 || intent.codec == 4 || intent.codec == 8;
     return intent.configured && decodable && !intent.using_screen && !mirror_active;
 }
+
+inline bool standalone_audio_yield_to_video(bool audio_only_session, bool video_packet) {
+    return audio_only_session && video_packet;
+}

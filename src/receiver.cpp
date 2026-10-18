@@ -17,10 +17,10 @@ static void log_message(void *,int level,const char *text) {
 }
 void Receiver::show(const std::string& s) { std::lock_guard<std::mutex> l(mutex);message=s; }
 std::string Receiver::status() { std::lock_guard<std::mutex> l(mutex);return message; }
-std::string Receiver::pin() { std::lock_guard<std::mutex> l(mutex);return pin_text; }
+std::string Receiver::pin() { std::lock_guard<std::mutex> l(mutex);return pairing.pin(); }
 bool Receiver::idle_for_profile_change() {
     std::lock_guard<std::mutex> l(mutex);
-    return client.empty() && pin_text.empty() && !mirror.load();
+    return client.empty() && !pairing.visible() && !mirror.load();
 }
 ReceiverDiagnostics Receiver::diagnostics() {
     std::lock_guard<std::mutex> l(mutex);
@@ -108,7 +108,7 @@ bool Receiver::pop(Packet& p,uint64_t latest) {
     queue_pop.record(uint64_t(std::max<int64_t>(0,now_ns()-pop_begin)));
     return true;
 }
-void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=video_packets=video_bytes=0;pin_text.clear();client.clear();video_timing.reset();ingress_to_queue.reset();ingress_copy.reset();queue_lock_wait.reset();queue_pop.reset();video_queue_residence.reset();audio_queue_residence.reset();last_video_arrival=0; }
+void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=video_packets=video_bytes=0;pairing.reset();client.clear();video_timing.reset();ingress_to_queue.reset();ingress_copy.reset();queue_lock_wait.reset();queue_pop.reset();video_queue_residence.reset();audio_queue_residence.reset();last_video_arrival=0; }
 void Receiver::clear_audio_packets() {
     std::lock_guard<std::mutex> l(mutex);
     for(auto i=packets.begin();i!=packets.end();) {
@@ -211,7 +211,7 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
         fprintf(stderr,"[client] model=%.80s admitted=%d\n",model?model:"unknown",int(*admit));
         if(*admit) {r.client=id;r.message=std::string("Connecting: ")+(name?std::string(name).substr(0,80):"device");r.activity=now_ns();}
     };
-    cb.display_pin=[](void *p,char *pin){Receiver& r=self(p);std::lock_guard<std::mutex> l(r.mutex);r.pin_text=pin?std::string(pin).substr(0,8):"";r.message="Enter this code on your device";};
+    cb.display_pin=[](void *p,char *pin){Receiver& r=self(p);std::lock_guard<std::mutex> l(r.mutex);r.pairing.update_pin(pin?pin:"");r.message="Enter this code on your Apple device";};
     cb.passwd=[](void *,int *n)->const char *{*n=0;return nullptr;};
     cb.check_register=[](void *p,const char *key)->bool{Receiver& r=self(p);std::lock_guard<std::mutex> l(r.mutex);return valid_key(key)&&r.keys.count(key);};
     cb.register_client=[](void *p,const char *,const char *key,const char *){
@@ -224,11 +224,12 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
         if(fprintf(file,"%s\n",key)<0)ok=false;
         if(fflush(file)!=0||fsync(fileno(file))!=0)ok=false;
         if(fclose(file)!=0)ok=false;
-        if(ok&&rename((path+".tmp").c_str(),path.c_str())==0)r.keys.insert(key);
+        if(ok&&rename((path+".tmp").c_str(),path.c_str())==0) {r.keys.insert(key);r.pairing.completed();r.message="AirPlay pairing complete";}
     };
     ntp_global_init();
     raop=raop_init(&cb);if(!raop) return false;
-    raop_set_log_callback(raop,log_message,this);raop_set_log_level(raop,LOGGER_INFO);
+    // UxPlay's INFO log includes the pairing PIN verbatim; keep it out of app logs.
+    raop_set_log_callback(raop,log_message,this);raop_set_log_level(raop,LOGGER_ERR);
     if(raop_init2(raop,0,device_id,(directory+"/server.key").c_str()))return false;
     if(raop_set_plist(raop,"width",capabilities.width) ||
        raop_set_plist(raop,"height",capabilities.height) ||

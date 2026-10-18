@@ -18,7 +18,7 @@ Version 1.0.0 is prepared as a release candidate. The verified physical target i
 - Starfish hardware-accelerated video playback with stereo audio during mirroring.
 - Configurable codec, resolution, frame rate, audio delay, and diagnostics.
 - Magic Remote pointer, arrow, OK, and Back navigation.
-- Local PIN pairing, saved configuration, session history, and automatic decoder recovery/fallback.
+- Large on-screen AirPlay PIN pairing, saved configuration, session history, and automatic decoder recovery/fallback.
 - Lightweight diagnostics separating advertised rate, incoming rate, accepted Feed rate, and decoder callbacks. Decoder callback rate does not claim displayed FPS.
 
 An audio-only RAOP path for negotiated AAC, AAC-ELD, ALAC, and PCM is implemented but awaits physical B7 validation; it is not listed as a verified feature.
@@ -41,7 +41,7 @@ ares-install -d YOUR_TV com.github.depius.uxair_1.0.0_arm.ipk
 ares-launch -d YOUR_TV com.github.depius.uxair
 ```
 
-Open UxAir, select it from Screen Mirroring on the sender, and enter the on-screen PIN when prompted. For music, select UxAir as the sender's AirPlay audio output. Pairing, receiver identity, and settings are private to the app ID.
+Open UxAir, select it from Screen Mirroring on the sender, and enter the large on-screen PIN when prompted. For music, select UxAir as the sender's AirPlay audio output. Pairing, receiver identity, and settings are private to the app ID.
 
 ### Migrating from UxPlay webOS development builds
 
@@ -81,8 +81,14 @@ The build verifies ARM32 soft-float ABI and GLIBC compatibility. The source arch
 
 ## Acknowledgements and license
 
-UxAir development and adaptation: Matej Skuhala / [@depius](https://github.com/depius). The AirPlay receiver core is [UxPlay by FDH2](https://github.com/FDH2/UxPlay); the original webOS port is by Daniel Filho / [@danlflh](https://github.com/danlflh). This project is an adaptation and is not written from scratch. Additional dependencies and license details are listed in [THIRD_PARTY.md](THIRD_PARTY.md). The project is licensed under [GPL-3.0-or-later](LICENSE); corresponding sources and build instructions are provided for releases.
+This repository is [depius/uxplay-webos](https://github.com/depius/uxplay-webos). UxAir development and adaptation: Matej Skuhala / [@depius](https://github.com/depius). The AirPlay receiver core is [UxPlay by FDH2](https://github.com/FDH2/UxPlay); the original webOS port is by Daniel Filho / [@danlflh](https://github.com/danlflh). This project is an adaptation and is not written from scratch. Additional dependencies and license details are listed in [THIRD_PARTY.md](THIRD_PARTY.md). The project is licensed under [GPL-3.0-or-later](LICENSE); corresponding sources and build instructions are provided for releases.
 
 ## Support development
 
-UxAir is free and open source. Donations are optional and do not unlock features or affect the license. The Buy Me a Coffee creator account has not been configured, so there is no donation link yet. No payments, telemetry, or account connection are required.
+<a href="https://buymeacoffee.com/depius"><img src="assets/buy-me-a-coffee.svg" alt="Buy me a coffee"></a>
+
+UxAir is free and open source. If you enjoy using it, you can support its development by buying me a coffee.
+
+https://buymeacoffee.com/depius
+
+Donations are optional and do not unlock features or affect the license. The app displays a bundled offline QR code for the same URL; the owner-provided QR image was not included with the supplied RC2 files, so this candidate uses a deterministic QR generated locally for the confirmed profile.

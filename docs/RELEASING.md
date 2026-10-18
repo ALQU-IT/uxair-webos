@@ -6,8 +6,8 @@
 2. Keep version `1.0.0` in `packaging/appinfo.json` for the RC. The package identity is `com.github.depius.uxair`; the former UxPlay development app has a different ID and is kept installed as the rollback option.
 3. Run `python3 tools/validate-metadata.py`, `tools/test.sh`, `tools/build.sh`, `python3 tools/verify-elf.py build/app`, `python3 tools/validate-ipk.py`, and `tools/source-package.py`.
 4. Inspect the IPK and source archive for private keys, logs, sender data, pairing/settings files, and local paths. Confirm the IPK is `com.github.depius.uxair_1.0.0_arm.ipk` and the source archive is `uxair-webos-1.0.0-source.tar.gz`.
-5. The Actions RC workflow runs the host tests, builds the ARMv7 IPK, validates the staged ELF and IPK, generates the corresponding-source archive and SHA-256 checksums, then uploads them as a candidate artifact.
-6. Validate on a rooted LG OLED B7 running webOS 3.9. The outstanding acceptance item is standalone AirPlay audio. Also recheck H.264 720p/60 and 1080p/60, HEVC 4K/60, 30 FPS modes, rotation, mirroring audio, Magic Remote navigation, pairing, settings, and reconnect/recovery.
+5. The Actions RC workflow runs host tests, builds the ARMv7 IPK, validates the staged ELF, package identity and bundled donation QR, generates corresponding sources and SHA-256 checksums, then uploads them as a candidate artifact.
+6. Validate on a rooted LG OLED B7 running webOS 3.9. Standalone AirPlay audio is still awaiting verification. Also recheck H.264 720p/60 and 1080p/60, HEVC 4K/60, 30 FPS modes, rotation, mirroring audio, Magic Remote navigation, large PIN pairing, donation QR readability, settings, and reconnect/recovery.
 
 ## Identity and user data
 

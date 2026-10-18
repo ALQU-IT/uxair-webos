@@ -9,6 +9,7 @@
 #include "diagnostics.h"
 #include "settings.h"
 #include "audio_session.h"
+#include "pairing_ui.h"
 struct Packet {
     bool video;
     unsigned codec;
@@ -70,6 +71,7 @@ struct Receiver {
     VideoTiming video_timing;
     DurationWindow ingress_to_queue, ingress_copy, queue_lock_wait, queue_pop;
     DurationWindow video_queue_residence, audio_queue_residence;
-    std::string directory, message="Waiting for a connection", pin_text, client;
+    std::string directory, message="Waiting for a connection", client;
+    PairingOverlayState pairing;
     std::set<std::string> keys;
 };

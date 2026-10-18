@@ -31,6 +31,7 @@ def main():
     (stage / 'build-info.txt').write_text(f'version={app["version"]}\ncommit={source_commit}\n')
     shutil.copy2(ROOT / 'packaging/icon.png', stage / 'icon.png')
     shutil.copy2(ROOT / 'build/uxair', stage / 'uxair')
+    shutil.copy2(ROOT / 'assets/bmc-qr.bmp', stage / 'bmc-qr.bmp')
     shutil.copy2(SDK / 'arm-webos-linux-gnueabi/sysroot/usr/lib/libstdc++.so.6', stage / 'lib/libstdc++.so.6')
     for source, dest in [
         ('LICENSE', 'GPL-3.0.txt'),

@@ -10,9 +10,25 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <algorithm>
+#include <cmath>
 static std::string log_path;
 static volatile sig_atomic_t interrupted = 0;
 static void signal_stop(int) { interrupted = 1; }
+static void fill_round_rect(SDL_Renderer *renderer,const SDL_Rect& rect,int radius,SDL_Color color) {
+    SDL_SetRenderDrawColor(renderer,color.r,color.g,color.b,color.a);
+    radius=std::max(0,std::min(radius,std::min(rect.w,rect.h)/2));
+    for(int y=0;y<rect.h;++y) {
+        int inset=0;
+        if(y<radius) {
+            double dy=radius-y-0.5;
+            inset=radius-int(std::sqrt(std::max(0.0,double(radius*radius)-dy*dy)));
+        } else if(y>=rect.h-radius) {
+            double dy=y-(rect.h-radius)+0.5;
+            inset=radius-int(std::sqrt(std::max(0.0,double(radius*radius)-dy*dy)));
+        }
+        SDL_RenderDrawLine(renderer,rect.x+inset,rect.y+y,rect.x+rect.w-inset-1,rect.y+y);
+    }
+}
 int64_t now_ns() { timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return int64_t(t.tv_sec)*1000000000 + t.tv_nsec; }
 std::string app_directory() {
     char p[4096]; ssize_t n = readlink("/proc/self/exe", p, sizeof(p)-1);
@@ -55,7 +71,14 @@ bool Shell::open() {
     font_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",30);
     large_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",76);
     small_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",23);
-    if(!font_||!large_||!small_) {fprintf(stderr,"[font] %s\n",TTF_GetError());return false;}
+    pin_font_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",112);
+    pin_font_small_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",88);
+    if(pin_font_)TTF_SetFontStyle(pin_font_,TTF_STYLE_BOLD);
+    if(pin_font_small_)TTF_SetFontStyle(pin_font_small_,TTF_STYLE_BOLD);
+    if(!font_||!large_||!small_||!pin_font_||!pin_font_small_) {fprintf(stderr,"[font] %s\n",TTF_GetError());return false;}
+    SDL_Surface *qr=SDL_LoadBMP((app_directory()+"/bmc-qr.bmp").c_str());
+    if(qr) {donation_qr_=SDL_CreateTextureFromSurface(renderer,qr);SDL_FreeSurface(qr);}
+    if(!donation_qr_)fprintf(stderr,"[donation] bundled QR image unavailable: %s\n",SDL_GetError());
     return true;
 }
 void Shell::transparent() {
@@ -218,6 +241,58 @@ void Shell::overlay(const std::vector<std::string>& lines) {
         text_at(lines[i],x+20,y+15+int(i)*38,box_w-40,small_,{239,249,246,255});
     SDL_RenderPresent(renderer);
 }
+void Shell::donation_panel() {
+    int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer,0,0,0,0);SDL_RenderClear(renderer);
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer,0,4,10,168);SDL_Rect backdrop={0,0,w,h};SDL_RenderFillRect(renderer,&backdrop);
+    int qr_size=std::min(500,std::min(w*45/100,h*65/100));
+    int top=std::max(20,(h-(qr_size+178))/2);
+    int panel_w=std::min(w-40,std::max(560,qr_size+120));
+    SDL_Rect panel={(w-panel_w)/2,top,panel_w,qr_size+150};
+    fill_round_rect(renderer,panel,26,{14,30,43,248});
+    const std::string heading="Enjoying the app? Buy me a coffee.";
+    int heading_width=0;TTF_SizeUTF8(font_,heading.c_str(),&heading_width,nullptr);
+    text_at(heading,(w-heading_width)/2,top+24,w-80,font_,{244,250,250,255});
+    if(donation_qr_) {
+        SDL_Rect qr={(w-qr_size)/2,top+70,qr_size,qr_size};
+        SDL_RenderCopy(renderer,donation_qr_,nullptr,&qr);
+    } else {
+        text("QR image unavailable",top+qr_size/2,large_,{255,255,255,255});
+    }
+    const std::string url="buymeacoffee.com/depius";
+    int url_width=0;TTF_SizeUTF8(font_,url.c_str(),&url_width,nullptr);
+    text_at(url,(w-url_width)/2,top+qr_size+82,w-60,font_,{77,226,185,255});
+    const std::string hint="Back to return";
+    int hint_width=0;TTF_SizeUTF8(small_,hint.c_str(),&hint_width,nullptr);
+    text_at(hint,(w-hint_width)/2,h-48,w-40,small_,{160,184,198,255});
+    SDL_RenderPresent(renderer);
+}
+void Shell::pairing_popup(const std::string& pin) {
+    if(pin.empty())return;
+    int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer,0,0,0,0);SDL_RenderClear(renderer);
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer,0,3,8,168);SDL_Rect backdrop={0,0,w,h};SDL_RenderFillRect(renderer,&backdrop);
+    int box_w=std::min(w*82/100,1120),box_h=std::min(h*62/100,500);
+    SDL_Rect panel={(w-box_w)/2,(h-box_h)/2,box_w,box_h};
+    fill_round_rect(renderer,panel,28,{14,30,43,250});
+    const std::string heading="AirPlay Pairing";
+    int heading_width=0;TTF_SizeUTF8(large_,heading.c_str(),&heading_width,nullptr);
+    text_at(heading,(w-heading_width)/2,panel.y+box_h/8,w-80,large_,{77,226,185,255});
+    const std::string instruction="Enter this code on your Apple device";
+    int instruction_width=0;TTF_SizeUTF8(font_,instruction.c_str(),&instruction_width,nullptr);
+    text_at(instruction,(w-instruction_width)/2,panel.y+box_h*37/100,w-80,font_,{225,237,243,255});
+    std::string spaced;
+    for(size_t i=0;i<pin.size();++i) {if(i)spaced+="  ";spaced+=pin[i];}
+    TTF_Font *display_pin_font=pin_font_;
+    int pin_width=0;TTF_SizeUTF8(display_pin_font,spaced.c_str(),&pin_width,nullptr);
+    if(pin_width>box_w*84/100) {display_pin_font=pin_font_small_;TTF_SizeUTF8(display_pin_font,spaced.c_str(),&pin_width,nullptr);}
+    text_at(spaced,(w-pin_width)/2,panel.y+box_h*52/100,w-80,display_pin_font,{255,255,255,255});
+    SDL_RenderPresent(renderer);
+}
 void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     SDL_SetRenderDrawColor(renderer,14,25,36,255);SDL_RenderClear(renderer);
     int w,h;SDL_GetRendererOutputSize(renderer,&w,&h);
@@ -230,4 +305,4 @@ void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     text("Same Wi-Fi network  ·  Quality in Settings  ·  Back to exit",h-80,font_,{145,167,185,255});
     SDL_RenderPresent(renderer);
 }
-Shell::~Shell() {if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }
+Shell::~Shell() {if(donation_qr_)SDL_DestroyTexture(donation_qr_);if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);if(pin_font_)TTF_CloseFont(pin_font_);if(pin_font_small_)TTF_CloseFont(pin_font_small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }

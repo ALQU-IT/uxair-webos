@@ -5,7 +5,9 @@ struct MockDecoder {
     HevcStartupGate gate;
     bool loaded=false, failed=false, playing=false;
     unsigned accepted=0;
-    void load() { gate.accept_load();loaded=false;failed=false;playing=false;accepted=0; }
+    void load(int64_t now_ns=1000000000LL) {
+        gate.accept_load(now_ns);loaded=false;failed=false;playing=false;accepted=0;
+    }
     bool feed(size_t bytes) {
         HevcFeedStage stage=gate.video_stage(loaded,failed,bytes);
         if(stage!=HevcFeedStage::Preroll && stage!=HevcFeedStage::Loaded) return false;
@@ -29,6 +31,7 @@ int main() {
     }
     assert(decoder.accepted==30 && decoder.playing && queue_peak==0);
     assert(decoder.gate.preroll_frames()==5);
+    assert(decoder.gate.accepted_frames()==30);
 
     decoder.load(); // Callback never arrives: feed must stop at a finite bound.
     for(unsigned frame=0;frame<240;++frame)decoder.feed(4096);
@@ -50,5 +53,28 @@ int main() {
     assert(decoder.gate.video_stage(false,false,4096)==HevcFeedStage::NoLoad);
     decoder.load();assert(decoder.feed(4096));
     assert(decoder.gate.preroll_frames()==1);
+
+    // Reported B7 case: the session has already fed 605 frames when a new
+    // portrait-to-UHD decoder Load succeeds at session age 23.72 seconds.
+    const int64_t session_start=1000000000LL;
+    const int64_t reopen_at=session_start+23720000000LL;
+    decoder.load(session_start);decoder.loaded=true;
+    for(unsigned i=0;i<605;++i)assert(decoder.feed(4096));
+    decoder.tick();assert(decoder.playing && decoder.gate.accepted_frames()==605);
+    decoder.load(reopen_at);
+    assert(decoder.gate.accepted_frames()==0 && decoder.gate.preroll_frames()==0);
+    assert(!decoder.gate.startup_timed_out(reopen_at+200000000LL,false,false,false));
+    bool retained_valid_keyframe=true; // main.cpp holds the validated pending AU.
+    assert(retained_valid_keyframe && decoder.feed(4096));
+    assert(decoder.gate.preroll_frames()==1 && decoder.gate.accepted_frames()==1);
+    decoder.loaded=true;decoder.tick();
+    assert(decoder.playing && !decoder.gate.startup_timed_out(reopen_at+9000000000LL,true,true,false));
+
+    decoder.load(reopen_at); // Genuine failure still has a per-Load deadline.
+    assert(!decoder.gate.startup_timed_out(reopen_at+HevcStartupGate::kStartupTimeoutNs,false,false,false));
+    assert(decoder.gate.startup_timed_out(reopen_at+HevcStartupGate::kStartupTimeoutNs+1,false,false,false));
+    assert(!decoder.gate.startup_timed_out(reopen_at+HevcStartupGate::kStartupTimeoutNs+1,false,false,true));
+    decoder.loaded=true;
+    assert(decoder.gate.startup_timed_out(reopen_at+HevcStartupGate::kStartupTimeoutNs+1,true,false,false));
     // H.264 startup does not consult the HEVC gate; its existing Feed path remains separate.
 }

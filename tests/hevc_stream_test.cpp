@@ -34,6 +34,8 @@ int main(int argc,char **argv) {
     HevcFrameInfo portrait_frame=stream.inspect(portrait.data(),portrait.size());
     assert(portrait_frame.valid && portrait_frame.keyframe && portrait_frame.configuration_changed);
     assert(portrait_frame.width==996 && portrait_frame.height==2160);
+    HevcFrameInfo same_portrait=stream.inspect(portrait.data(),portrait.size());
+    assert(same_portrait.valid && !same_portrait.configuration_changed);
     std::vector<uint8_t> uhd=read(argv[2]);
     hevc_probe::Sample uhd_sample;std::string uhd_error;
     assert(hevc_probe::inspect(uhd.data(),uhd.size(),3840,2160,uhd_sample,uhd_error));
@@ -41,6 +43,11 @@ int main(int argc,char **argv) {
     HevcFrameInfo changed=stream.inspect(uhd.data()+uhd_first.offset,uhd_first.size);
     assert(changed.valid && changed.keyframe && changed.configuration_changed);
     assert(changed.width==3840 && changed.height==2160);
+    HevcFrameInfo same_uhd=stream.inspect(uhd.data()+uhd_first.offset,uhd_first.size);
+    assert(same_uhd.valid && !same_uhd.configuration_changed);
+    const auto& uhd_second=uhd_sample.units[1];
+    HevcFrameInfo delta=stream.inspect(uhd.data()+uhd_second.offset,uhd_second.size);
+    assert(delta.valid && !delta.keyframe && !delta.configuration_changed);
     stream.reset();
     std::vector<uint8_t> bytes=read(argv[1]);
     hevc_probe::Sample sample;std::string error;

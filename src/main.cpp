@@ -411,13 +411,12 @@ int main() {
                 ++hardware_decoder_errors;finish(true);recover_decoder(was_hevc,"starfish-error");
             }
             if(opened && session_codec==MirrorCodec::ExperimentalHevc &&
-               now-session_started>8000000000LL && !receiver.paused &&
-               (!media.ready || (video_count>0 && !media.playing))) {
+               hevc_startup.startup_timed_out(now,media.ready.load(),media.playing.load(),receiver.paused.load())) {
                 ReceiverDiagnostics pending_queue=receiver.queue_snapshot();
-                fprintf(stderr,"[codec-start] timeout stage=%s ready=%d playing=%d video_feed=%u preroll=%u/%zu queue=%zu elapsed_ms=%.0f\n",
-                    media.ready?"play":"load",int(media.ready.load()),int(media.playing.load()),video_count,
+                fprintf(stderr,"[codec-start] timeout stage=%s ready=%d playing=%d video_feed=%u generation_feed=%u preroll=%u/%zu queue=%zu elapsed_ms=%.0f session_age_ms=%.0f\n",
+                    media.ready?"play":"load",int(media.ready.load()),int(media.playing.load()),video_count,hevc_startup.accepted_frames(),
                     hevc_startup.preroll_frames(),hevc_startup.preroll_bytes(),pending_queue.video_queue_packets,
-                    (now-session_started)/1e6);
+                    hevc_startup.age_ns(now)/1e6,(now-session_started)/1e6);
                 ++hardware_decoder_errors;finish(true);recover_decoder(true,"startup-timeout");
             }
             if(opened && media.playing && video_count)session_success=true;
@@ -582,7 +581,7 @@ int main() {
                 finish(true);recover_decoder(was_hevc,"starfish-load-failed");continue;
             }
             if(incoming_hevc) {
-                hevc_startup.accept_load();hevc_preroll_wait_logged=hevc_first_feed_logged=false;
+                hevc_startup.accept_load(now_ns());hevc_preroll_wait_logged=hevc_first_feed_logged=false;
                 fprintf(stderr,"[codec-start] load-accepted=1 first-video=validated-keyframe preroll-delay-ms=200 limit=%u-frames/%zu-bytes\n",
                     HevcStartupGate::kMaxPrerollFrames,HevcStartupGate::kMaxPrerollBytes);
             }
@@ -679,7 +678,8 @@ int main() {
                 fprintf(stderr,"[codec] reinitialize=%u input=%dx%d load_ms=%.2f success=%d\n",
                     ++decoder_reinitializations,width,height,(now_ns()-open_begin)/1e6,int(media_opened));
                 if(!media_opened) {finish(true);recover_decoder(true,"hevc-reopen-failed");continue;}
-                hevc_startup.accept_load();hevc_preroll_wait_logged=hevc_first_feed_logged=false;
+                hevc_startup.accept_load(now_ns());hevc_preroll_wait_logged=hevc_first_feed_logged=false;
+                hevc_schedule_wait_logged=false;stall=0;last_paused=false;
                 fprintf(stderr,"[codec-start] load-accepted=1 reason=parameter-change input=%dx%d\n",width,height);
                 hevc_wait_keyframe=false;
                 origin=pending.timestamp;start=now_ns()+200000000;pts=0;audio_end=0;audio_started=false;decoder.reset();
@@ -692,7 +692,10 @@ int main() {
                 finish(true);recover_decoder(true,"access-unit-bound");continue;
             }
             pending.codec=3; // Parsed; retain AU unchanged across Feed retries.
-            if(reopened)continue;
+            if(reopened) {
+                fprintf(stderr,"[codec-start] reinit-keyframe retained=1 bytes=%zu pts_ns=0\n",pending.data.size());
+                continue; // The next loop honors the new 200 ms PTS preroll.
+            }
         }
         HevcFeedStage hevc_feed_stage=HevcFeedStage::Loaded;
         if(pending.video && session_codec==MirrorCodec::ExperimentalHevc) {
@@ -748,7 +751,7 @@ int main() {
                     if(!hevc_first_feed_logged) {
                         fprintf(stderr,"[codec-start] first-video-feed accepted=1 stage=%s ready=%d playing=%d bytes=%zu elapsed_ms=%.0f\n",
                             hevc_feed_stage==HevcFeedStage::Preroll?"preroll":"loaded",int(media.ready.load()),
-                            int(media.playing.load()),pending.data.size(),(feed_end-session_started)/1e6);
+                            int(media.playing.load()),pending.data.size(),hevc_startup.age_ns(feed_end)/1e6);
                         hevc_first_feed_logged=true;
                     }
                 }

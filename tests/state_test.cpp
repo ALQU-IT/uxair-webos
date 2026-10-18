@@ -30,6 +30,8 @@ int main() {
     assert(settings.width==1280 && settings.height==720 && settings.max_fps==30);
     AdvertisedCapabilities profile=advertised_capabilities(settings);
     assert(profile.width==1280 && profile.height==720 && profile.max_fps==30);
+    assert(codec_negotiation_result(settings,SenderVideoCodec::H264)==CodecNegotiationResult::Accept);
+    assert(codec_negotiation_result(settings,SenderVideoCodec::Hevc)==CodecNegotiationResult::Reject);
     assert(mirror_limits(settings).video_packet_bytes==1024*1024);
     assert(mirror_limits(settings).queue_bytes==4*1024*1024);
     assert(!profile.direct_video && !profile.hls && !profile.hevc && profile.legacy_pairing);
@@ -54,6 +56,8 @@ int main() {
     assert(switch_mirror_profile(settings,1920,1080,[&](const Settings&){return true;})==ProfileSwitchResult::Applied);
     assert(input_fits_mirror_profile(settings,1920,1080));
     assert(input_fits_mirror_profile(settings,1080,1920));
+    assert(codec_negotiation_result(settings,SenderVideoCodec::H264)==CodecNegotiationResult::Accept);
+    assert(codec_negotiation_result(settings,SenderVideoCodec::Hevc)==CodecNegotiationResult::Reject);
     assert(!input_fits_mirror_profile(settings,1920,1200));
     assert(!input_fits_mirror_profile(settings,2000,1000));
     assert(mirror_limits(settings).video_packet_bytes==2*1024*1024);

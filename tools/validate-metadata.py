@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 APP = json.loads((ROOT / 'packaging/appinfo.json').read_text())
 EXPECTED_ID = 'com.github.depius.uxair'
 EXPECTED_NAME = 'UxAir'
-EXPECTED_DESCRIPTION = 'UxAir is a native AirPlay mirroring receiver for compatible rooted LG webOS TVs, based on the open-source UxPlay project.'
+EXPECTED_DESCRIPTION = 'UxAir is an open-source AirPlay receiver for compatible rooted LG webOS TVs, supporting hardware-accelerated H.264 and HEVC screen mirroring.'
 
 def fail(message):
     print(f'FAIL: {message}', file=sys.stderr)
@@ -31,7 +31,7 @@ def main():
     changelog = (ROOT / 'CHANGELOG.md').read_text()
     if f'## [{version}]' not in changelog:
         fail('CHANGELOG does not contain the current version')
-    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE_NOTES_1.0.0_RC.md', 'docs/RELEASE_NOTES_1.0.0_RC2.md', 'docs/REPOSITORY_METADATA.md']:
+    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE_NOTES_1.0.0_RC.md', 'docs/RELEASE_NOTES_1.0.0_RC2.md', 'docs/RELEASE_NOTES_1.0.0_RC3.md', 'docs/REPOSITORY_METADATA.md']:
         if not (ROOT / path).is_file():
             fail(f'missing required documentation: {path}')
     tracked_sources = list((ROOT / 'src').glob('*.cpp'))

@@ -50,7 +50,7 @@ UxAir uses the new ID `com.github.depius.uxair`. It installs alongside the exist
 ## Remote and configuration
 
 - Left/Right changes the Video, Audio, Diagnostics, and About sections.
-- Up/Down focuses rows; OK opens or confirms a choice; Back cancels a dialog, returns from playback to the UI, or exits from the idle screen.
+- Up/Down focuses rows; OK opens or confirms a choice; Back cancels a dialog or pairing attempt, returns from playback to the UI, or exits from the idle screen.
 - During playback, OK opens diagnostics and Back returns to video.
 - Set audio delay before connecting; positive values delay the TV audio.
 - Choose 30 or 60 FPS as the advertised maximum. The sender may use a lower rate.
@@ -81,7 +81,7 @@ The build verifies ARM32 soft-float ABI and GLIBC compatibility. The source arch
 
 ## Acknowledgements and license
 
-This repository is [depius/uxplay-webos](https://github.com/depius/uxplay-webos). UxAir development and adaptation: Matej Skuhala / [@depius](https://github.com/depius). The AirPlay receiver core is [UxPlay by FDH2](https://github.com/FDH2/UxPlay); the original webOS port is by Daniel Filho / [@danlflh](https://github.com/danlflh). This project is an adaptation and is not written from scratch. Additional dependencies and license details are listed in [THIRD_PARTY.md](THIRD_PARTY.md). The project is licensed under [GPL-3.0-or-later](LICENSE); corresponding sources and build instructions are provided for releases.
+This repository is [depius/uxair-webos](https://github.com/depius/uxair-webos) (formerly `uxplay-webos`). UxAir development and adaptation: [@depius](https://github.com/depius). The AirPlay receiver core is [UxPlay by FDH2](https://github.com/FDH2/UxPlay); the original webOS port is by Daniel Filho / [@danlflh](https://github.com/danlflh). This project is an adaptation and is not written from scratch. Additional dependencies and license details are listed in [THIRD_PARTY.md](THIRD_PARTY.md). The project is licensed under [GPL-3.0-or-later](LICENSE); corresponding sources and build instructions are provided for releases.
 
 ## Support development
 

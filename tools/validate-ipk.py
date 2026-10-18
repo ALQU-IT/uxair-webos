@@ -68,6 +68,8 @@ def main():
         packaged = json.loads(content('appinfo.json'))
         if packaged != app:
             fail('packaged appinfo differs from staged metadata')
+        if content('icon.png') != (ROOT / 'packaging/icon.png').read_bytes():
+            fail('packaged launcher icon differs from the current UxAir artwork')
         if not content('uxair') or not content('lib/libstdc++.so.6'):
             fail('missing receiver or private C++ runtime')
         qr = content('bmc-qr.bmp')

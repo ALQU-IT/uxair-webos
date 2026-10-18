@@ -24,8 +24,21 @@ int main() {
     assert(input_fits_mirror_profile(settings,720,1280)); // portrait orientation
     assert(!input_fits_mirror_profile(settings,1920,1080));
     assert(!input_fits_mirror_profile(settings,1080,1920));
-    assert(!set_mirror_resolution(settings,3840,2160));
-    assert(settings.codec==MirrorCodec::H264);
+    assert(set_mirror_resolution(settings,3840,2160));
+    assert(settings.codec==MirrorCodec::ExperimentalHevc);
+    assert(settings.width==3840 && settings.height==2160);
+    assert(set_mirror_resolution(settings,1280,720));
+    assert(settings.codec==MirrorCodec::ExperimentalHevc); // returning to HD preserves codec
+    assert(set_mirror_codec(settings,MirrorCodec::H264));
+    assert(settings.width==1280 && settings.height==720);
+    assert(set_mirror_resolution(settings,1920,1080));
+    assert(settings.codec==MirrorCodec::H264 && settings.width==1920);
+    assert(set_mirror_resolution(settings,3840,2160)); // UHD atomically enables HEVC
+    assert(settings.codec==MirrorCodec::ExperimentalHevc && settings.width==3840);
+    assert(set_mirror_codec(settings,MirrorCodec::H264)); // H.264 atomically returns to 1080p
+    assert(settings.codec==MirrorCodec::H264 && settings.width==1920 && settings.height==1080);
+    assert(set_mirror_resolution(settings,1280,720));
+    assert(settings.codec==MirrorCodec::H264 && settings.width==1280);
     assert(set_mirror_fps(settings,60));
     assert(settings.max_fps==60);
     AdvertisedCapabilities h264_720_60=advertised_capabilities(settings);

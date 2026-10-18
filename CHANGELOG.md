@@ -30,6 +30,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- Compose pairing and donation dialogs over the active UI in a single SDL frame; pairing Back restarts the RAOP listener to abandon the pending authentication attempt.
+- Preserve pairing overlays across redraws and avoid repeated presentation while a pairing PIN remains unchanged.
+
+### Changed
+
+- Offer 720p, 1080p and 4K independently of the selected codec, with valid atomic H.264/HEVC profile transitions.
+- Simplify codec labels and use the UxAir navy/blue theme, updated launcher artwork and RC3 package branding.
+
 ### Added
 
 - Configurable advertised maximum of 30 or experimental 60 FPS for H.264 720p/1080p and HEVC up to 4K.

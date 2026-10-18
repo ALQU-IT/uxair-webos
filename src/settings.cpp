@@ -12,8 +12,8 @@ bool supported_mirror_resolution(int width, int height) {
 }
 bool supported_mirror_fps(int fps) { return fps == 30 || fps == 60; }
 bool set_mirror_resolution(Settings& settings, int width, int height) {
-    if (!supported_mirror_resolution(width, height) ||
-        (width == 3840 && settings.codec != MirrorCodec::ExperimentalHevc)) return false;
+    if (!supported_mirror_resolution(width, height)) return false;
+    if(width==3840)settings.codec=MirrorCodec::ExperimentalHevc;
     settings.width = width; settings.height = height; return true;
 }
 bool set_mirror_fps(Settings& settings, int fps) {

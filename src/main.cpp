@@ -100,6 +100,8 @@ int main() {
     int& focus=nav.focus;
     bool ui_visible=true,session_success=false,donation_open=false;
     std::string last_rendered_pin;
+    std::vector<std::string> last_overlay_lines;
+    bool pairing_overlay_dirty=false;
     uint64_t session_started_utc=0, ingress_at_start=0, drops_at_start=0,video_drops_at_start=0,hardware_decoder_errors=0;
     int observed_width=0,observed_height=0;
     MirrorCodec session_codec=MirrorCodec::H264;
@@ -223,7 +225,7 @@ int main() {
         std::vector<UiRow> rows;
         if(which==UiPage::Mirroring) {
             rows.push_back(UiRow("Resolution",settings.width==3840?"4K":settings.width==1920?"1080p":"720p","H.264: up to 1080p; HEVC: up to 4K. Frame rate is configured separately.",receiver.idle_for_profile_change()));
-            rows.push_back(UiRow("Codec capability",settings.codec==MirrorCodec::ExperimentalHevc?"HEVC enabled (sender-selected)":"H.264 only","HEVC is advertised alongside H.264; the sender chooses the codec",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Video codec",settings.codec==MirrorCodec::ExperimentalHevc?"H.265 (HEVC)":"H.264","Choose the video format. H.265 enables 4K.",receiver.idle_for_profile_change()));
             rows.push_back(UiRow("Maximum frame rate",std::to_string(settings.max_fps)+" FPS",settings.max_fps==60?"Advertised maximum; the sender may choose less":"30 FPS maximum",receiver.idle_for_profile_change()));
             rows.push_back(UiRow("Incoming SPS",observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting video","Parsed source dimensions; not output resolution",false));
             rows.push_back(UiRow("AirPlay receiver",receiver.status(),"HEVC mode accepts H.264 if the sender selects it",false));
@@ -266,8 +268,8 @@ int main() {
             rows.push_back(UiRow("Reset usage history","Confirm","Pairing and receiver identity are retained"));
         } else if(which==UiPage::System) {
             rows.push_back(UiRow("UxAir",build_version,"AirPlay Receiver for webOS",false));
-            rows.push_back(UiRow("Developer","Matej Skuhala / @depius","Based on UxPlay by FDH2 and the original webOS port by Daniel Filho",false));
-            rows.push_back(UiRow("Project","github.com/depius/uxplay-webos","Compatible with AirPlay; independent community project",false));
+            rows.push_back(UiRow("Developer","@depius","Based on UxPlay by FDH2 and the original webOS port by Daniel Filho",false));
+            rows.push_back(UiRow("Project","UxAir","UxAir – AirPlay Receiver for webOS",false));
             rows.push_back(UiRow("License","GPL-3.0-or-later","See bundled license and third-party notices",false));
             rows.push_back(UiRow("Enjoying the app? Buy me a coffee.","","Optional support · UxAir is free and open source"));
         }
@@ -279,13 +281,12 @@ int main() {
             case UiDialogKind::Resolution:
                 d.current=settings.width==3840?2:settings.width==1920?1:0;
                 d.title="Screen mirroring resolution";d.description="Frame rate is selected separately. Disconnect sender before applying.";
-                d.choices={"720p","1080p"};
-                if(settings.codec==MirrorCodec::ExperimentalHevc)d.choices.push_back("4K HEVC");
+                d.choices={"720p","1080p","4K"};
                 break;
             case UiDialogKind::Codec:
                 d.current=settings.codec==MirrorCodec::ExperimentalHevc?1:0;
-                d.title="Screen mirroring codec";d.description="HEVC mode advertises AirPlay bit 42 alongside H.264; iOS currently selects H.264 at 720p/1080p on the tested B7.";
-                d.choices={"H.264 only","HEVC / H.265 + H.264"};break;
+                d.title="Screen mirroring codec";d.description="Choose the video format. H.265 enables 4K.";
+                d.choices={"H.264","H.265 (HEVC)"};break;
             case UiDialogKind::FrameRate:
                 d.current=settings.max_fps==60?1:0;
                 d.title="Maximum mirroring frame rate";d.description="This is an AirPlay limit; the sender may choose a lower rate.";
@@ -307,13 +308,9 @@ int main() {
     };
     auto draw_page=[&](const std::string& subtitle,const std::string& footer) {
         const std::string pin=receiver.pin();
-        const UiModal modal=active_ui_modal(!pin.empty(),donation_open);
-        if(modal==UiModal::Donation) shell.donation_panel();
-        else {
-            UiDialog d=dialog_for();
-            shell.page(page,subtitle,rows_for(page),focus,footer,nav.dialog==UiDialogKind::None?nullptr:&d);
-            if(modal==UiModal::Pairing)shell.pairing_popup(pin);
-        }
+        UiDialog d=dialog_for();
+        shell.page(page,subtitle,rows_for(page),focus,footer,
+                   nav.dialog==UiDialogKind::None?nullptr:&d,pin,donation_open);
     };
     auto apply_resolution=[&](int target) {
         if(!receiver.idle_for_profile_change()) {receiver.show("Disconnect sender before changing quality.");return;}
@@ -376,15 +373,14 @@ int main() {
         previous_loop=now;
         Action action=shell.action();
         if(action==Action::Exit)break;
-        const std::string pairing_pin=receiver.pin();
+        std::string pairing_pin=receiver.pin();
         const bool pairing_changed=pairing_pin!=last_rendered_pin;
         if(pairing_changed) {
             last_rendered_pin=pairing_pin;last_ui=0;
-            if(pairing_pin.empty()) {
-                if(opened && !ui_visible)shell.transparent();
-            } else shell.pairing_popup(pairing_pin);
+            if(opened && !ui_visible)pairing_overlay_dirty=true;
         }
-        if((!pairing_pin.empty() || donation_open) && action!=Action::Back)action=Action::None;
+        const PairingInputResult pairing_input=pairing_input_result(!pairing_pin.empty(),action==Action::Back,action==Action::Exit);
+        if((pairing_input==PairingInputResult::Consumed || donation_open) && action!=Action::Back)action=Action::None;
         if(opened && !ui_visible && action==Action::Select) {
             ui_visible=true;nav.category(2);action=Action::None;last_ui=0;
         }
@@ -402,7 +398,14 @@ int main() {
             }
         }
         if(action==Action::Back) {
-            if(!pairing_pin.empty()) {}
+            if(pairing_input==PairingInputResult::Cancel) {
+                fprintf(stderr,"[pairing] Back requested cancellation; restarting RAOP session\n");
+                if(activate_profile(settings))receiver.show("Pairing cancelled. Ready to connect.");
+                else receiver.show("Pairing cancelled; receiver restart failed. Restart app.");
+                pairing_pin=receiver.pin();last_rendered_pin=pairing_pin;last_ui=0;
+                if(opened && !ui_visible)pairing_overlay_dirty=true;
+                action=Action::None;
+            }
             else if(donation_open) {donation_open=false;last_ui=0;}
             else if(ui_visible && nav.dialog!=UiDialogKind::None) {nav.back();last_ui=0;}
             else if(opened && ui_visible) {ui_visible=false;shell.transparent();last_ui=0;}
@@ -423,7 +426,7 @@ int main() {
             if(nav.dialog!=UiDialogKind::None) {
                 UiDialogKind kind=nav.dialog;
                 int choice=nav.confirm();
-                if(kind==UiDialogKind::Resolution && choice>=0 && choice<=(settings.codec==MirrorCodec::ExperimentalHevc?2:1))apply_resolution(choice==2?3840:choice?1920:1280);
+                if(kind==UiDialogKind::Resolution && choice>=0 && choice<=2)apply_resolution(choice==2?3840:choice?1920:1280);
                 else if(kind==UiDialogKind::Codec && choice>=0 && choice<=1)apply_codec(choice?MirrorCodec::ExperimentalHevc:MirrorCodec::H264);
                 else if(kind==UiDialogKind::FrameRate && choice>=0 && choice<=1)apply_fps(choice?60:30);
                 else if(kind==UiDialogKind::Overlay && choice>=0 && choice<=2) {
@@ -505,7 +508,7 @@ int main() {
                 ++silence_blocks;
             }
         }
-        if(!opened && now-last_ui>500000000) {
+        if(!opened && now-last_ui>500000000 && (pairing_pin.empty() || pairing_changed)) {
             draw_page(receiver.status(),"Left/Right sections  •  Up/Down focus  •  OK select  •  Back cancel");
             last_ui=now;
         }
@@ -517,7 +520,7 @@ int main() {
             live_feed_fps=opened?(feed>=live_feed_last?feed-live_feed_last:feed)/seconds:0;
             live_ingress_last=ingress;live_feed_last=feed;
             live_queue=receiver.queue_snapshot();live_rss_kb=process_rss_kb();last_live=now;
-            if(opened && !ui_visible && settings.diagnostics!=DiagnosticsMode::Off) {
+            if(opened && !ui_visible && settings.diagnostics!=DiagnosticsMode::Off && pairing_pin.empty()) {
                     std::vector<std::string> lines;
                     if(audio_only_playback) {
                         lines.push_back(std::string("Standalone RAOP audio ")+audio_codec_name(receiver.last_audio_codec.load())+" -> PCM stereo 44.1 kHz");
@@ -537,13 +540,18 @@ int main() {
                     }
                     if(settings.diagnostics==DiagnosticsMode::Detailed)
                         lines.push_back("RSS "+(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB":"N/A")+"  Session "+duration_text(uint64_t(std::max<int64_t>(0,now-session_started))/1000000));
-                    shell.overlay(lines);
-                    const std::string pin=receiver.pin();if(!pin.empty())shell.pairing_popup(pin);
+                    last_overlay_lines=lines;
+                    shell.overlay(last_overlay_lines);
+                    pairing_overlay_dirty=false;
             }
         }
-        if(session_ui_redraw_due(opened,ui_visible,last_ui,now)) {
+        if(session_ui_redraw_due(opened,ui_visible,last_ui,now) && (pairing_pin.empty() || pairing_changed)) {
             draw_page("Live session  •  Back returns to playback","Incoming and Feed are receiver rates  •  Displayed FPS unavailable");
             last_ui=now;
+        }
+        if(pairing_overlay_dirty && opened && !ui_visible) {
+            shell.overlay(last_overlay_lines,pairing_pin);
+            pairing_overlay_dirty=false;
         }
         if(now-last_stats>5000000000LL) {
             double window_s=(now-last_stats)/1e9;

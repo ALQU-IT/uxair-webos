@@ -34,10 +34,9 @@ public:
     UiHit hit_test(int x, int y, int row_count, const UiDialog *dialog = nullptr) const;
     void screen(const std::string& status, const std::string& pin, int audio_delay_ms=100);
     void page(UiPage page, const std::string& subtitle, const std::vector<UiRow>& rows, int selected,
-              const std::string& footer, const UiDialog *dialog = nullptr);
-    void overlay(const std::vector<std::string>& lines);
-    void donation_panel();
-    void pairing_popup(const std::string& pin);
+              const std::string& footer, const UiDialog *dialog = nullptr,
+              const std::string& pin = std::string(), bool donation_open = false);
+    void overlay(const std::vector<std::string>& lines, const std::string& pin = std::string());
     void transparent();
     ~Shell();
 private:
@@ -48,6 +47,8 @@ private:
     SDL_Texture *donation_qr_=nullptr;
     void text(const std::string&,int y,_TTF_Font*,SDL_Color);
     void text_at(const std::string&,int x,int y,int max_width,_TTF_Font*,SDL_Color);
+    void draw_donation_modal(int w, int h);
+    void draw_pairing_modal(const std::string& pin, int w, int h);
 };
 int64_t now_ns();
 std::string app_directory();

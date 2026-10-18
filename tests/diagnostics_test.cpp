@@ -16,6 +16,15 @@ int main() {
     assert(sample.pts_gaps_over_100ms==0);
     assert(sample.pts_discontinuities==0);
 
+    // A 60 FPS PTS stream is measured from timestamps, independently of the
+    // advertised maximum and the firmware's throttled frame-ready callbacks.
+    timing.reset();
+    for(uint64_t i=0;i<121;++i)timing.record(1000000000ULL+i*16666667ULL);
+    sample=timing.take_window();
+    const double measured_pts_fps=sample.interval_total_ns?sample.intervals*1e9/sample.interval_total_ns:0;
+    assert(sample.frames==121 && sample.intervals==120);
+    assert(measured_pts_fps>59.9 && measured_pts_fps<60.1);
+
     // Backwards timestamps and large discontinuities do not pollute cadence.
     timing.record(4000000000ULL);
     timing.record(3990000000ULL);

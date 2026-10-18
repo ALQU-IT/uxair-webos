@@ -2,10 +2,6 @@
 #include "settings.h"
 #include <cstdint>
 
-// The public Starfish API exposes setHdrInfo(), but this build has no verified
-// Rockhopper 3.9 payload contract or output-plane confirmation for HDR10.
-static const bool UXPLAY_HDR10_EXPERIMENTAL_ENABLED = false;
-
 struct AdvertisedCapabilities {
     int width, height, max_fps;
     bool direct_video, hls, hevc, legacy_pairing;

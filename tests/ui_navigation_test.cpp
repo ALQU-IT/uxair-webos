@@ -22,6 +22,8 @@ int main() {
     ui.begin(UiDialogKind::ResetHistory,0);
     ui.move_choice(1,2);assert(ui.confirm()==1);
     assert(ui.back() && ui.page==UiPage::Mirroring);
+    ui.begin(UiDialogKind::FrameRate,0);
+    ui.move_choice(1,2);assert(ui.confirm()==1); // 60 FPS choice remains reachable by remote
     assert(!session_ui_redraw_due(false,true,0,0));
     assert(!session_ui_redraw_due(true,false,0,0));
     assert(session_ui_redraw_due(true,true,0,10)); // input-triggered redraw

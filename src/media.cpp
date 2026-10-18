@@ -1,4 +1,5 @@
 #include "media.h"
+#include "media_rate.h"
 #include "settings.h"
 #include <StarfishMediaAPIs.h>
 #include <AcbAPI.h>
@@ -60,8 +61,10 @@ void Media::event(int type, int64_t value, const char *message, void *user) {
     }
 }
 bool Media::open(const char *app_id, int width, int height, bool audio, int rate,
-                 int video_source_buffer_bytes, int canvas_width, int canvas_height, MirrorCodec codec) {
+                 int video_source_buffer_bytes, int canvas_width, int canvas_height, MirrorCodec codec, int max_fps) {
+    MediaRateFields frame_rate;
     if (width<=0 || height<=0 || video_source_buffer_bytes<1048576 || video_source_buffer_bytes>2097152 ||
+        !media_rate_fields(max_fps,frame_rate) ||
         (codec==MirrorCodec::H264 && int64_t(width)*height>1920*1080) ||
         (codec==MirrorCodec::ExperimentalHevc && int64_t(width)*height>3840*2160))
         return false;
@@ -106,14 +109,14 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
       << "\",\"queryPosition\":false,\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\""
       << (codec==MirrorCodec::ExperimentalHevc?"H265":"H264") << "\"";
     if (audio) p << ",\"audio\":\"PCM\"";
-    p << "},\"esInfo\":{\"pauseAtDecodeTime\":true,\"ptsToDecode\":0,\"seperatedPTS\":true,\"videoFpsValue\":30,\"videoFpsScale\":1},\"format\":\"RAW\",\"provider\":\"Chrome\"";
+    p << "},\"esInfo\":{\"pauseAtDecodeTime\":true,\"ptsToDecode\":0,\"seperatedPTS\":true,\"videoFpsValue\":" << frame_rate.video_fps_value << ",\"videoFpsScale\":" << frame_rate.video_fps_scale << "},\"format\":\"RAW\",\"provider\":\"Chrome\"";
     if (audio) p << ",\"pcmInfo\":{\"channelMode\":\"stereo\",\"format\":\"S16LE\",\"sampleRate\":" << rate / 1000.0
                  << ",\"bitsPerSample\":16,\"layout\":\"interleaved\"}";
     p << "},\"restartStreaming\":false,\"streamQualityInfo\":true,\"streamQualityInfoNonFlushable\":true,\"totalStreamSize\":256,"
          "\"bufferingCtrInfo\":{\"preBufferByte\":0,\"bufferMinLevel\":0,\"bufferMaxLevel\":0,\"qBufferLevelAudio\":0,\"qBufferLevelVideo\":0,"
          "\"srcBufferLevelAudio\":{\"minimum\":1024,\"maximum\":131072},\"srcBufferLevelVideo\":{\"minimum\":1024,\"maximum\":" << video_source_buffer_bytes << "}}},"
-         "\"adaptiveStreaming\":{\"audioOnly\":false,\"maxWidth\":" << width << ",\"maxHeight\":" << height << ",\"maxFrameRate\":30}}}]}";
-    fprintf(stderr, "[media] Load %s\n", p.str().c_str());
+         "\"adaptiveStreaming\":{\"audioOnly\":false,\"maxWidth\":" << width << ",\"maxHeight\":" << height << ",\"maxFrameRate\":" << frame_rate.max_frame_rate << "}}}]}";
+    fprintf(stderr, "[media] Load max_fps=%d %s\n", max_fps, p.str().c_str());
     phase=monotonic_ns();
     loaded_ = api_->Load(p.str().c_str(), event, this);
     fprintf(stderr,"[media-init] Starfish Load end ms=%.2f success=%d\n",(monotonic_ns()-phase)/1e6,int(loaded_));

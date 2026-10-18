@@ -1,6 +1,6 @@
 # ARMv7 development package
 
-The `Build ARMv7 development IPK` GitHub Actions workflow runs on the standard Apple Silicon `macos-15` runner when `feature/b7-optimization` is pushed or manually dispatched. Its own Ubuntu native-test job must pass before the macOS build job starts. It uses the checksum-pinned Darwin ARM64 webOS SDK in `dependencies.lock.json`, builds the pinned private libraries and receiver, checks the ELF ABI, validates the IPK contents, and uploads the package only if every step passes. Host FFmpeg tools are not needed for this target build: `tools/build-deps.sh` cross-compiles the pinned FFmpeg source. The separate Ubuntu workflow remains unchanged.
+The `Build ARMv7 development IPK` GitHub Actions workflow runs on configured development branches, including `codex/milestone-9-60fps-version-1`, or by manual dispatch. Its own Ubuntu native-test job must pass before the macOS build job starts. It uses the checksum-pinned Darwin ARM64 webOS SDK in `dependencies.lock.json`, builds the pinned private libraries and receiver, checks the ELF ABI, validates the IPK contents, and uploads the package only if every step passes. Host FFmpeg tools are not needed for this target build: `tools/build-deps.sh` cross-compiles the pinned FFmpeg source. The separate Ubuntu workflow remains unchanged.
 
 The artifact contains:
 

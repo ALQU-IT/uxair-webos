@@ -216,7 +216,7 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
        raop_set_plist(raop,"refreshRate",capabilities.max_fps) ||
        raop_set_plist(raop,"maxFPS",capabilities.max_fps) ||
        raop_set_plist(raop,"pin",0)) return false;
-    fprintf(stderr,"[receiver] selected-codec-mode=%s advertised-codecs=%s advertised-bit42=%d mirror-limit=%dx%d/%d sender-selects-actual-codec=1 max-video-packet=%zu queue=%zu\n",
+    fprintf(stderr,"[receiver] selected-codec-mode=%s advertised-codecs=%s advertised-bit42=%d mirror-limit=%dx%d advertised_max_fps=%d sender-selects-actual-codec-and-rate=1 max-video-packet=%zu queue=%zu\n",
             capabilities.hevc?"HEVC-capable":"H264-only",
             capabilities.hevc?"H264+HEVC":"H264",int(capabilities.hevc),
             capabilities.width,capabilities.height,capabilities.max_fps,

@@ -10,7 +10,7 @@ bool supported_mirror_resolution(int width, int height) {
     return (width == 1280 && height == 720) || (width == 1920 && height == 1080) ||
            (width == 3840 && height == 2160);
 }
-bool supported_mirror_fps(int fps) { return fps == 30; }
+bool supported_mirror_fps(int fps) { return fps == 30 || fps == 60; }
 bool set_mirror_resolution(Settings& settings, int width, int height) {
     if (!supported_mirror_resolution(width, height) ||
         (width == 3840 && settings.codec != MirrorCodec::ExperimentalHevc)) return false;
@@ -67,7 +67,6 @@ void validate_settings(Settings& settings) {
         settings.width = 1280; settings.height = 720;
     }
     if (!supported_mirror_fps(settings.max_fps)) settings.max_fps = 30;
-    if (settings.hdr != HdrPolicy::Auto && settings.hdr != HdrPolicy::Sdr) settings.hdr = HdrPolicy::Auto;
     if (settings.diagnostics != DiagnosticsMode::Off && settings.diagnostics != DiagnosticsMode::Compact && settings.diagnostics != DiagnosticsMode::Detailed)
         settings.diagnostics = DiagnosticsMode::Off;
 }
@@ -93,8 +92,6 @@ bool load_settings(const std::string& path, Settings& settings) {
         else if (line == "codec=h264") parsed.codec=MirrorCodec::H264;
         else if (line == "fps=30") parsed.max_fps=30;
         else if (line == "fps=60") parsed.max_fps=60;
-        else if (line == "hdr=auto") parsed.hdr=HdrPolicy::Auto;
-        else if (line == "hdr=sdr") parsed.hdr=HdrPolicy::Sdr;
         else if (line == "diagnostics=off") parsed.diagnostics=DiagnosticsMode::Off;
         else if (line == "diagnostics=compact") parsed.diagnostics=DiagnosticsMode::Compact;
         else if (line == "diagnostics=detailed") parsed.diagnostics=DiagnosticsMode::Detailed;
@@ -110,10 +107,10 @@ bool save_settings(const std::string& path, const Settings& settings) {
     FILE *file=fopen(temp.c_str(), "w");
     if (!file) return false;
     chmod(temp.c_str(), 0600);
-    bool ok=fprintf(file,"UXPLAY_SETTINGS_V1\nresolution=%s\ncodec=%s\nfps=30\nhdr=%s\ndiagnostics=%s\n",
+    bool ok=fprintf(file,"UXPLAY_SETTINGS_V1\nresolution=%s\ncodec=%s\nfps=%d\ndiagnostics=%s\n",
         safe.width==3840?"4k":safe.width==1920?"1080p":"720p",
         safe.codec==MirrorCodec::ExperimentalHevc?"hevc-experimental":"h264",
-        safe.hdr==HdrPolicy::Sdr?"sdr":"auto",
+        safe.max_fps,
         safe.diagnostics==DiagnosticsMode::Compact?"compact":safe.diagnostics==DiagnosticsMode::Detailed?"detailed":"off")>0;
     if (fflush(file)!=0 || fsync(fileno(file))!=0) ok=false;
     if (fclose(file)!=0) ok=false;

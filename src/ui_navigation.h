@@ -2,7 +2,7 @@
 #include <cstdint>
 
 enum class UiPage { Mirroring, Media, Diagnostics, System, History };
-enum class UiDialogKind { None, Resolution, Codec, Overlay, AudioDelay, ResetHistory };
+enum class UiDialogKind { None, Resolution, Codec, FrameRate, Overlay, AudioDelay, ResetHistory };
 
 struct UiNavigation {
     UiPage page = UiPage::Mirroring;

@@ -3,7 +3,6 @@
 #include <functional>
 #include <string>
 
-enum class HdrPolicy { Auto, Sdr };
 enum class DiagnosticsMode { Off, Compact, Detailed };
 enum class MirrorCodec { H264, ExperimentalHevc };
 
@@ -11,7 +10,6 @@ struct Settings {
     int width = 1280;
     int height = 720;
     int max_fps = 30;
-    HdrPolicy hdr = HdrPolicy::Auto;
     DiagnosticsMode diagnostics = DiagnosticsMode::Off;
     MirrorCodec codec = MirrorCodec::H264;
 };
@@ -23,7 +21,7 @@ struct MirrorLimits {
 struct VideoWindow { int x, y, width, height; };
 enum class ProfileSwitchResult { Unchanged, Applied, Recovered, Unavailable };
 
-// Supported sender limits: H.264 through 1080p and HEVC through UHD, all at 30 FPS.
+// 60 FPS is an advertised experimental maximum; sender and decoder may choose less.
 bool supported_mirror_resolution(int width, int height);
 bool supported_mirror_fps(int fps);
 bool set_mirror_resolution(Settings& settings, int width, int height);

@@ -7,7 +7,6 @@
 #include "shell.h"
 #include "identity.h"
 #include "settings.h"
-#include "capabilities.h"
 #include "usage_stats.h"
 #include <cstdio>
 #include <cstdlib>
@@ -65,17 +64,18 @@ int main() {
         }
     }
     Settings settings;
-    if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d codec=%s hdr10-pipeline=%s legacy-hdr-setting=%s-ignored diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.codec==MirrorCodec::ExperimentalHevc?"experimental-HEVC":"H264",UXPLAY_HDR10_EXPERIMENTAL_ENABLED?"enabled":"disabled",settings.hdr==HdrPolicy::Sdr?"SDR":"auto",diagnostics_mode_name(settings.diagnostics));
+    if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d codec=%s hdr10-pipeline=disabled diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.codec==MirrorCodec::ExperimentalHevc?"experimental-HEVC":"H264",diagnostics_mode_name(settings.diagnostics));
     UsageStats usage;
     load_usage_stats(state_dir+"/usage-v1",usage);
     Receiver receiver;
     bool receiver_started=receiver.start(state_dir,settings);
     if(!receiver_started) {
         receiver.stop();
-        if(settings.width==1920 || settings.codec==MirrorCodec::ExperimentalHevc) {
-            fprintf(stderr,"[settings] receiver start failed; trying H264 720p recovery\n");
+        if(settings.width==1920 || settings.codec==MirrorCodec::ExperimentalHevc || settings.max_fps==60) {
+            fprintf(stderr,"[settings] receiver start failed; trying H264 720p/30 recovery\n");
             set_mirror_codec(settings,MirrorCodec::H264);
             set_mirror_resolution(settings,1280,720);
+            set_mirror_fps(settings,30);
             receiver_started=receiver.start(state_dir,settings);
             if(receiver_started) {
                 if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] recovery save failed\n");
@@ -104,7 +104,7 @@ int main() {
     MirrorCodec session_codec=MirrorCodec::H264;
     unsigned decoder_reinitializations=0;
     std::string fallback_reason;
-    double live_incoming_fps=0,live_feed_fps=0,live_pts_fps=0,live_queue_ms=0,live_feed_ms=0;
+    double live_incoming_fps=0,live_feed_fps=0,live_pts_fps=0,live_decoder_callbacks_fps=0,live_queue_ms=0,live_feed_ms=0;
     uint64_t live_ingress_last=0,live_feed_last=0;
     ReceiverDiagnostics live_queue;
     long live_rss_kb=-1;
@@ -176,12 +176,28 @@ int main() {
             Settings previous=settings;
             set_mirror_codec(settings,MirrorCodec::H264);
             set_mirror_resolution(settings,1280,720);
+            set_mirror_fps(settings,30);
             if(activate_profile(settings)) {
                 if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] fallback save failed\n");
                 receiver.show("HEVC failed. H.264 720p active; reconnect sender.");
             } else {
                 settings=previous;
-                receiver.show("HEVC failed. Restart app for H.264 recovery.");
+                bool restored=activate_profile(previous);
+                receiver.show(restored?"HEVC fallback failed; previous profile restored.":"HEVC fallback failed. Restart app.");
+            }
+            return;
+        }
+        if(settings.max_fps==60) {
+            Settings previous=settings;
+            set_mirror_fps(settings,30);
+            if(activate_profile(settings)) {
+                if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] 30 FPS recovery save failed\n");
+                fprintf(stderr,"[settings] decoder recovery lowered advertised max FPS to 30\n");
+                receiver.show("60 FPS failed. Restored 30 FPS; reconnect sender.");
+            } else {
+                settings=previous;
+                bool restored=activate_profile(previous);
+                receiver.show(restored?"30 FPS recovery failed; previous profile restored.":"FPS recovery failed. Restart app.");
             }
             return;
         }
@@ -196,11 +212,10 @@ int main() {
     auto rows_for=[&](UiPage which)->std::vector<UiRow> {
         std::vector<UiRow> rows;
         if(which==UiPage::Mirroring) {
-            rows.push_back(UiRow("Resolution",settings.width==3840?"4K / 30":settings.width==1920?"1080p / 30":"720p / 30","H.264: up to 1080p; HEVC: up to 4K. Reconnect after change",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Resolution",settings.width==3840?"4K":settings.width==1920?"1080p":"720p","H.264: up to 1080p; HEVC: up to 4K. Frame rate is configured separately.",receiver.idle_for_profile_change()));
             rows.push_back(UiRow("Codec capability",settings.codec==MirrorCodec::ExperimentalHevc?"HEVC enabled (sender-selected)":"H.264 only","Bit 42 enables HEVC alongside H.264; on the tested B7 iOS still selects H.264 at 720p/1080p",receiver.idle_for_profile_change()));
-            rows.push_back(UiRow("Maximum frame rate","30 FPS","Supported sender limit",false));
+            rows.push_back(UiRow("Maximum frame rate",std::to_string(settings.max_fps)+" FPS",settings.max_fps==60?"Experimental advertised maximum; sender and decoder may deliver less":"30 FPS maximum; 60 FPS is experimental",receiver.idle_for_profile_change()));
             rows.push_back(UiRow("Incoming SPS",observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting video","Parsed source dimensions; not output resolution",false));
-            rows.push_back(UiRow("HDR10 / Main10",UXPLAY_HDR10_EXPERIMENTAL_ENABLED?"Experimental":"Unavailable","Main10 rejected; Starfish 3.9 HDR metadata/output path is unverified",false));
             rows.push_back(UiRow("AirPlay receiver",receiver.status(),"HEVC mode accepts H.264 if the sender selects it",false));
         } else if(which==UiPage::Media) {
             rows.push_back(UiRow("Audio delay",std::to_string(receiver.audio_delay_ms.load())+" ms","Set before connecting; step size 25 ms",receiver.idle_for_profile_change()));
@@ -211,11 +226,12 @@ int main() {
             rows.push_back(UiRow("On-screen overlay",diagnostics_mode_name(settings.diagnostics),"Off, Compact or Detailed"));
             std::string resolution=observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting SPS";
             rows.push_back(UiRow("Negotiated codec / SPS",std::string(receiver.incoming_video_codec==2?"HEVC":receiver.incoming_video_codec==1?"H.264":"Awaiting codec")+"  "+resolution,
-                "Receiver limit "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" / 30 FPS; iOS selects the codec"));
-            rows.push_back(UiRow("Incoming / feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),"One-second callback and accepted-feed windows"));
+                "Receiver limit "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" / "+std::to_string(settings.max_fps)+" FPS max; iOS selects codec/rate"));
+            rows.push_back(UiRow("Incoming / Feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),
+                "Measured over 1s; advertised maximum "+std::to_string(settings.max_fps)+" FPS"));
             rows.push_back(UiRow("PTS / display FPS",fmt("%.1f",live_pts_fps)+" / unavailable",
                 "Starfish info "+std::to_string(media.video_info_width.load())+"x"+std::to_string(media.video_info_height.load())+
-                "; logical ACB window "+std::to_string(media.acb_window_width.load())+"x"+std::to_string(media.acb_window_height.load())+"; panel output unmeasured"));
+                "; callback/s "+fmt("%.1f",live_decoder_callbacks_fps)+" (not display FPS); ACB "+std::to_string(media.acb_window_width.load())+"x"+std::to_string(media.acb_window_height.load())+"; panel output unmeasured"));
             rows.push_back(UiRow("Video / audio queue",std::to_string(live_queue.video_queue_packets)+" / "+std::to_string(live_queue.queue_packets-live_queue.video_queue_packets),"Video queue residence "+fmt("%.1f",live_queue_ms)+" ms, last 5s"));
             rows.push_back(UiRow("Starfish",media.failed?"Error":media.playing?"Playing":media.ready?"Loaded":opened?"Loading":"Idle",
                 "Feed "+std::to_string(media.feed_video_accepted.load())+" accepted / "+std::to_string(media.feed_video_rejected.load())+" rejected; "+fmt("%.1f",live_feed_ms)+" ms avg"));
@@ -236,8 +252,8 @@ int main() {
         } else if(which==UiPage::System) {
             rows.push_back(UiRow("Application version",build_version,"Source commit "+build_commit,false));
             rows.push_back(UiRow("Device target","LG webOS 3.9 / ARMv7","Build target; runtime firmware identification is unavailable",false));
-            rows.push_back(UiRow("Supported profiles","H.264 720p/1080p; HEVC up to 4K","30 FPS; selected maximum and actual sender codec are shown in Video diagnostics",false));
-            rows.push_back(UiRow("HDR10 / Main10",UXPLAY_HDR10_EXPERIMENTAL_ENABLED?"Experimental":"Unavailable","Main10 rejected; no verified Starfish 3.9 metadata/output contract",false));
+            rows.push_back(UiRow("Supported profiles","H.264 720p/1080p; HEVC up to 4K","30 FPS supported; 60 FPS experimental. See Video diagnostics for advertised and actual rates.",false));
+            rows.push_back(UiRow("HDR / Main10","Not supported","SDR only; Main10 remains rejected",false));
             rows.push_back(UiRow("Receiver",receiver.status(),"Pairing and receiver identity remain in app-private storage",false));
             rows.push_back(UiRow("Logs","uxplay.log","Previous session: uxplay.log.previous",false));
         }
@@ -248,14 +264,18 @@ int main() {
         switch(nav.dialog) {
             case UiDialogKind::Resolution:
                 d.current=settings.width==3840?2:settings.width==1920?1:0;
-                d.title="Screen mirroring resolution";d.description="Disconnect sender first. Reconnect after applying.";
-                d.choices={"720p / 30 FPS  -  safe fallback","1080p / 30 FPS  -  tested on B7"};
-                if(settings.codec==MirrorCodec::ExperimentalHevc)d.choices.push_back("4K / 30 FPS  -  experimental HEVC; sender may choose lower");
+                d.title="Screen mirroring resolution";d.description="Frame rate is selected separately. Disconnect sender before applying.";
+                d.choices={"720p","1080p"};
+                if(settings.codec==MirrorCodec::ExperimentalHevc)d.choices.push_back("4K  -  experimental HEVC");
                 break;
             case UiDialogKind::Codec:
                 d.current=settings.codec==MirrorCodec::ExperimentalHevc?1:0;
                 d.title="Screen mirroring codec";d.description="HEVC mode advertises AirPlay bit 42 alongside H.264; iOS currently selects H.264 at 720p/1080p on the tested B7.";
                 d.choices={"H.264 only  -  safe default","Experimental HEVC / H.265  -  Main 8-bit SDR"};break;
+            case UiDialogKind::FrameRate:
+                d.current=settings.max_fps==60?1:0;
+                d.title="Maximum mirroring frame rate";d.description="This is an AirPlay limit; the sender may choose a lower rate.";
+                d.choices={"30 FPS  -  supported","60 FPS  -  experimental"};break;
             case UiDialogKind::Overlay:
                 d.current=int(settings.diagnostics);
                 d.title="Playback diagnostics overlay";d.description="Incoming and feed FPS are not displayed FPS.";
@@ -285,6 +305,24 @@ int main() {
             }
         } else if(result==ProfileSwitchResult::Recovered) receiver.show("Quality start failed; previous profile restored.");
         else if(result==ProfileSwitchResult::Unavailable) receiver.show("Receiver unavailable. Restart app to recover.");
+    };
+    auto apply_fps=[&](int fps) {
+        if(!receiver.idle_for_profile_change()) {receiver.show("Disconnect sender before changing frame rate.");return;}
+        const Settings previous=settings;
+        Settings proposed=settings;
+        if(!set_mirror_fps(proposed,fps) || proposed.max_fps==settings.max_fps)return;
+        if(!activate_profile(proposed)) {
+            bool restored=activate_profile(previous);
+            receiver.show(restored?"Frame-rate start failed; previous setting restored.":"Receiver unavailable. Restart app.");
+            return;
+        }
+        if(!save_settings(state_dir+"/settings-v1",proposed)) {
+            bool restored=activate_profile(previous);
+            receiver.show(restored?"Frame-rate save failed; previous setting restored.":"Frame-rate save failed. Restart app.");
+            return;
+        }
+        settings=proposed;
+        receiver.show(fps==60?"60 FPS maximum advertised (experimental). Reconnect; sender may choose less.":"30 FPS maximum active. Reconnect sender.");
     };
     auto apply_codec=[&](MirrorCodec codec) {
         if(!receiver.idle_for_profile_change()) {receiver.show("Disconnect sender before changing codec.");return;}
@@ -352,6 +390,7 @@ int main() {
                 int choice=nav.confirm();
                 if(kind==UiDialogKind::Resolution && choice>=0 && choice<=(settings.codec==MirrorCodec::ExperimentalHevc?2:1))apply_resolution(choice==2?3840:choice?1920:1280);
                 else if(kind==UiDialogKind::Codec && choice>=0 && choice<=1)apply_codec(choice?MirrorCodec::ExperimentalHevc:MirrorCodec::H264);
+                else if(kind==UiDialogKind::FrameRate && choice>=0 && choice<=1)apply_fps(choice?60:30);
                 else if(kind==UiDialogKind::Overlay && choice>=0 && choice<=2) {
                     settings.diagnostics=DiagnosticsMode(choice);
                     if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");
@@ -365,6 +404,7 @@ int main() {
                 if(focus>=0 && focus<int(rows.size()) && rows[focus].enabled) {
                     if(page==UiPage::Mirroring && focus==0)nav.begin(UiDialogKind::Resolution,settings.width==3840?2:settings.width==1920?1:0);
                     else if(page==UiPage::Mirroring && focus==1)nav.begin(UiDialogKind::Codec,settings.codec==MirrorCodec::ExperimentalHevc?1:0);
+                    else if(page==UiPage::Mirroring && focus==2)nav.begin(UiDialogKind::FrameRate,settings.max_fps==60?1:0);
                     else if(page==UiPage::Diagnostics && focus==0)nav.begin(UiDialogKind::Overlay,int(settings.diagnostics));
                     else if(page==UiPage::Diagnostics && focus==6) {page=UiPage::History;focus=0;}
                     else if(page==UiPage::History && focus==6)nav.begin(UiDialogKind::ResetHistory,0);
@@ -434,8 +474,9 @@ int main() {
             live_queue=receiver.queue_snapshot();live_rss_kb=process_rss_kb();last_live=now;
             if(opened && !ui_visible && settings.diagnostics!=DiagnosticsMode::Off) {
                     std::vector<std::string> lines;
-                    lines.push_back(std::string(session_codec==MirrorCodec::ExperimentalHevc?"HEVC Main8 SPS ":"H.264 SPS ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"pending")+"  advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height));
-                    lines.push_back("Incoming "+fmt("%.1f",live_incoming_fps)+"  Feed "+fmt("%.1f",live_feed_fps)+" FPS  Displayed N/A");
+                    lines.push_back(std::string(session_codec==MirrorCodec::ExperimentalHevc?"HEVC Main8 SPS ":"H.264 SPS ")+(observed_width?std::to_string(observed_width)+"x"+std::to_string(observed_height):"pending")+"  advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" max "+std::to_string(settings.max_fps)+" FPS");
+                    lines.push_back("Incoming "+fmt("%.1f",live_incoming_fps)+"  Feed "+fmt("%.1f",live_feed_fps)+" FPS  displayed N/A");
+                    lines.push_back("Decoder callbacks "+fmt("%.1f",live_decoder_callbacks_fps)+"/s; not display FPS");
                     lines.push_back("Video queue "+std::to_string(live_queue.video_queue_packets)+"  Drops "+std::to_string(live_queue.dropped_video_frames)+"  Feed rejects "+std::to_string(media.feed_video_rejected.load()));
                     if(settings.diagnostics==DiagnosticsMode::Detailed) {
                         lines.push_back("PTS "+fmt("%.1f",live_pts_fps)+" FPS  Queue "+fmt("%.1f",live_queue_ms)+" ms  Feed "+fmt("%.1f",live_feed_ms)+" ms");
@@ -464,11 +505,12 @@ int main() {
             double incoming_fps=timing.frames/window_s;
             double pts_fps=timing.interval_total_ns?timing.intervals*1e9/timing.interval_total_ns:0;
             live_pts_fps=pts_fps;
+            live_decoder_callbacks_fps=event_delta/window_s;
             live_queue_ms=q.video_queue_residence.average_ms();live_feed_ms=video_feed.average_ms();
             double avg_frame_ms=timing.intervals?timing.interval_total_ns/double(timing.intervals)/1e6:0;
-            if(opened) fprintf(stderr,"[video] incoming_fps=%.2f pts_fps=%.2f frame_ms_avg=%.2f min=%.2f max=%.2f feed_fps=%.2f decoder_events_s=%.2f invalid=%u queue_dropped_frames=%llu\n",
-                incoming_fps,pts_fps,avg_frame_ms,timing.interval_min_ns/1e6,timing.interval_max_ns/1e6,
-                (media.feed_video_accepted.load()-last_feed_video)/window_s,event_delta/window_s,invalid_video,(unsigned long long)q.dropped_video_frames);
+            if(opened) fprintf(stderr,"[video] advertised_max_fps=%d incoming_fps=%.2f pts_fps=%.2f frame_ms_avg=%.2f min=%.2f max=%.2f feed_accepted_fps=%.2f decoder_callbacks_s=%.2f (not displayed FPS) invalid=%u queue_dropped_frames=%llu\n",
+                settings.max_fps,incoming_fps,pts_fps,avg_frame_ms,timing.interval_min_ns/1e6,timing.interval_max_ns/1e6,
+                (media.feed_video_accepted.load()-last_feed_video)/window_s,live_decoder_callbacks_fps,invalid_video,(unsigned long long)q.dropped_video_frames);
             if(opened) fprintf(stderr,"[pipeline] queue=%zu/512 packets bytes=%zu/%zu (%.1f%%) peak=%zu packets/%zu bytes dropped_packets=%llu retries_video=%llu rejected_video=%llu retries_audio=%llu feed_audio_fps=%.2f feed_avg_us=%.1f feed_max_us=%.1f\n",
                 q.queue_packets,q.queue_bytes,receiver.max_queue_bytes,q.queue_bytes*100.0/receiver.max_queue_bytes,q.peak_queue_packets,q.peak_queue_bytes,
                 (unsigned long long)q.dropped_packets,
@@ -567,7 +609,7 @@ int main() {
             session_codec=incoming_hevc?MirrorCodec::ExperimentalHevc:MirrorCodec::H264;
             int64_t open_begin=now_ns();
             bool media_opened=media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,
-                std::min(settings.width,1920),std::min(settings.height,1080),session_codec);
+                std::min(settings.width,1920),std::min(settings.height,1080),session_codec,settings.max_fps);
             fprintf(stderr,"[media-init] open_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
             if(!media_opened) {
                 bool was_hevc=session_codec==MirrorCodec::ExperimentalHevc;
@@ -591,8 +633,8 @@ int main() {
             audio_decode_calls=audio_decode_ns=audio_decode_max_ns=0;
             last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
             ui_visible=false;shell.transparent();
-            fprintf(stderr,"[session] codec=%s input=%dx%d advertised=%dx%d audio=%d profile=%s bitdepth=%d\n",
-                    incoming_hevc?"HEVC":"H264",width,height,settings.width,settings.height,int(receiver.has_audio),
+            fprintf(stderr,"[session] codec=%s input=%dx%d advertised=%dx%d advertised_max_fps=%d audio=%d profile=%s bitdepth=%d\n",
+                    incoming_hevc?"HEVC":"H264",width,height,settings.width,settings.height,settings.max_fps,int(receiver.has_audio),
                     incoming_hevc?"Main":"H264",incoming_hevc?8:0);
         }
         int64_t pts=pending.timestamp>=origin ? int64_t(pending.timestamp-origin) : -int64_t(origin-pending.timestamp);
@@ -632,7 +674,7 @@ int main() {
                 media.close();width=info.width;height=info.height;
                 int64_t open_begin=now_ns();
                 bool media_opened=info.keyframe && media.open(app_id,width,height,true,44100,mirror_limits(settings).video_source_buffer_bytes,
-                    std::min(settings.width,1920),std::min(settings.height,1080));
+                    std::min(settings.width,1920),std::min(settings.height,1080),MirrorCodec::H264,settings.max_fps);
                 fprintf(stderr,"[media-init] reopen_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
                 if(!media_opened) {finish(true);recover_decoder(false,"h264-reopen-failed");continue;}
                 origin=pending.timestamp;start=now_ns();pts=0;audio_end=0;audio_started=false;decoder.reset();
@@ -678,7 +720,7 @@ int main() {
                 bool media_opened=media.open(app_id,width,height,true,44100,
                     mirror_limits(settings).video_source_buffer_bytes,
                     std::min(settings.width,1920),std::min(settings.height,1080),
-                    MirrorCodec::ExperimentalHevc);
+                    MirrorCodec::ExperimentalHevc,settings.max_fps);
                 fprintf(stderr,"[codec] reinitialize=%u input=%dx%d load_ms=%.2f success=%d\n",
                     ++decoder_reinitializations,width,height,(now_ns()-open_begin)/1e6,int(media_opened));
                 if(!media_opened) {finish(true);recover_decoder(true,"hevc-reopen-failed");continue;}

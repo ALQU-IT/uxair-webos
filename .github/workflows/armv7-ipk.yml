@@ -8,6 +8,7 @@ on:
       - codex/milestone-7-hevc-hdr-ui
       - codex/milestone-7-1-hevc-selection
       - codex/milestone-8-hdr-4k-optimization
+      - codex/milestone-9-60fps-version-1
   workflow_dispatch:
 
 permissions:

@@ -19,14 +19,19 @@ int main() {
     assert(supported_mirror_resolution(1280,720));
     assert(supported_mirror_resolution(1920,1080));
     assert(supported_mirror_resolution(3840,2160));
-    assert(supported_mirror_fps(30) && !supported_mirror_fps(60));
+    assert(supported_mirror_fps(30) && supported_mirror_fps(60) && !supported_mirror_fps(24));
     assert(input_fits_mirror_profile(settings,1280,720));
     assert(input_fits_mirror_profile(settings,720,1280)); // portrait orientation
     assert(!input_fits_mirror_profile(settings,1920,1080));
     assert(!input_fits_mirror_profile(settings,1080,1920));
     assert(!set_mirror_resolution(settings,3840,2160));
     assert(settings.codec==MirrorCodec::H264);
-    assert(!set_mirror_fps(settings,60));
+    assert(set_mirror_fps(settings,60));
+    assert(settings.max_fps==60);
+    AdvertisedCapabilities h264_720_60=advertised_capabilities(settings);
+    assert(h264_720_60.width==1280 && h264_720_60.height==720 && h264_720_60.max_fps==60);
+    assert(!set_mirror_fps(settings,24) && settings.max_fps==60);
+    assert(set_mirror_fps(settings,30));
     assert(settings.width==1280 && settings.height==720 && settings.max_fps==30);
     AdvertisedCapabilities profile=advertised_capabilities(settings);
     assert(profile.width==1280 && profile.height==720 && profile.max_fps==30);
@@ -37,13 +42,20 @@ int main() {
     assert(!profile.direct_video && !profile.hls && !profile.hevc && profile.legacy_pairing);
     assert((UXPLAY_PINNED_FEATURES & (1ULL<<0))==0 && (UXPLAY_PINNED_FEATURES & (1ULL<<4))==0);
     assert((UXPLAY_PINNED_FEATURES & (1ULL<<42))==0 && (UXPLAY_PINNED_FEATURES & (1ULL<<27))!=0);
-    assert(!UXPLAY_HDR10_EXPERIMENTAL_ENABLED);
-    settings.hdr=HdrPolicy::Sdr;settings.diagnostics=DiagnosticsMode::Detailed;
+    settings.diagnostics=DiagnosticsMode::Detailed;
     assert(save_settings(settings_path,settings));
     Settings loaded;
     assert(load_settings(settings_path,loaded));
     assert(loaded.width==1280 && loaded.height==720 && loaded.max_fps==30);
-    assert(loaded.hdr==HdrPolicy::Sdr && loaded.diagnostics==DiagnosticsMode::Detailed);
+    assert(loaded.diagnostics==DiagnosticsMode::Detailed);
+    Settings persisted_60=settings;
+    assert(set_mirror_fps(persisted_60,60));
+    assert(save_settings(settings_path,persisted_60));
+    assert(load_settings(settings_path,loaded) && loaded.max_fps==60);
+    { std::ifstream saved(settings_path.c_str());std::string line;bool stored_rate=false,stored_hdr=false;
+      while(std::getline(saved,line)) {if(line=="fps=60")stored_rate=true;if(line.find("hdr=")==0)stored_hdr=true;}
+      assert(stored_rate && !stored_hdr); }
+    assert(save_settings(settings_path,settings));
     int attempts=0;
     assert(switch_mirror_profile(settings,1920,1080,[&](const Settings& s){
         ++attempts;return s.width==1280;
@@ -56,6 +68,10 @@ int main() {
     assert(switch_mirror_profile(settings,1920,1080,[&](const Settings&){return true;})==ProfileSwitchResult::Applied);
     assert(input_fits_mirror_profile(settings,1920,1080));
     assert(input_fits_mirror_profile(settings,1080,1920));
+    Settings h264_1080_60=settings;assert(set_mirror_fps(h264_1080_60,60));
+    AdvertisedCapabilities h264_profile_60=advertised_capabilities(h264_1080_60);
+    assert(!h264_profile_60.hevc && h264_profile_60.width==1920 && h264_profile_60.max_fps==60);
+    assert(set_mirror_resolution(h264_1080_60,1280,720) && h264_1080_60.max_fps==60);
     assert(codec_negotiation_result(settings,SenderVideoCodec::H264)==CodecNegotiationResult::Accept);
     assert(codec_negotiation_result(settings,SenderVideoCodec::Hevc)==CodecNegotiationResult::Reject);
     assert(!input_fits_mirror_profile(settings,1920,1200));
@@ -70,11 +86,15 @@ int main() {
     assert(hevc_720.hevc && hevc_720.width==1280 && hevc_720.height==720);
     assert(codec_negotiation_result(hevc,SenderVideoCodec::Hevc)==CodecNegotiationResult::Accept);
     assert(codec_negotiation_result(hevc,SenderVideoCodec::H264)==CodecNegotiationResult::AcceptH264Fallback);
+    Settings hevc_720_60=hevc;assert(set_mirror_fps(hevc_720_60,60));
+    assert(advertised_capabilities(hevc_720_60).max_fps==60);
     assert(set_mirror_resolution(hevc,1920,1080));
     AdvertisedCapabilities hevc_1080=advertised_capabilities(hevc);
     assert(hevc_1080.hevc && hevc_1080.width==1920 && hevc_1080.height==1080);
     assert(codec_negotiation_result(hevc,SenderVideoCodec::Hevc)==CodecNegotiationResult::Accept);
     assert(codec_negotiation_result(hevc,SenderVideoCodec::H264)==CodecNegotiationResult::AcceptH264Fallback);
+    Settings hevc_1080_60=hevc;assert(set_mirror_fps(hevc_1080_60,60));
+    assert(advertised_capabilities(hevc_1080_60).max_fps==60);
     assert(set_mirror_resolution(hevc,3840,2160));
     assert(input_fits_mirror_profile(hevc,3840,2160));
     assert(!input_fits_mirror_profile(hevc,4096,2160));
@@ -84,6 +104,13 @@ int main() {
     assert(codec_negotiation_result(hevc,SenderVideoCodec::Hevc)==CodecNegotiationResult::Accept);
     assert(codec_negotiation_result(hevc,SenderVideoCodec::Unsupported)==CodecNegotiationResult::Reject);
     assert(!hevc_profile.hls && !hevc_profile.direct_video && hevc_profile.max_fps==30);
+    Settings hevc_4k_60=hevc;assert(set_mirror_fps(hevc_4k_60,60));
+    AdvertisedCapabilities hevc_4k_profile_60=advertised_capabilities(hevc_4k_60);
+    assert(hevc_4k_profile_60.hevc && hevc_4k_profile_60.width==3840 && hevc_4k_profile_60.max_fps==60);
+    assert(mirror_limits(hevc_4k_60).queue_bytes==mirror_limits(hevc).queue_bytes); // no unmeasured buffer growth
+    Settings h264_recovery_60=hevc_4k_60;
+    assert(set_mirror_codec(h264_recovery_60,MirrorCodec::H264));
+    assert(h264_recovery_60.width==1920 && h264_recovery_60.max_fps==60);
     assert(save_settings(settings_path,hevc));
     assert(load_settings(settings_path,loaded));
     assert(loaded.codec==MirrorCodec::ExperimentalHevc && loaded.width==3840);
@@ -110,7 +137,7 @@ int main() {
     assert(profile.width==1920 && profile.height==1080 && profile.max_fps==30);
     { std::ofstream old(settings_path.c_str());old<<"UXPLAY_SETTINGS_V1\nresolution=1080p\nfps=60\nhdr=auto\ndiagnostics=compact\n"; }
     assert(load_settings(settings_path,loaded));
-    assert(loaded.width==1920 && loaded.height==1080 && loaded.max_fps==30); // 60 FPS fallback only
+    assert(loaded.width==1920 && loaded.height==1080 && loaded.max_fps==60); // legacy HDR key is ignored
     assert(loaded.diagnostics==DiagnosticsMode::Compact);
     { std::ofstream invalid(settings_path.c_str());invalid<<"UXPLAY_SETTINGS_V1\nresolution=4k\nfps=30\n"; }
     assert(load_settings(settings_path,loaded));

@@ -2,7 +2,7 @@
 
 ## HDR10 / Main10
 
-No HDR playback path is enabled. The receiver detects HEVC Main10 and rejects it before Starfish Load; it does not pass bit depth, transfer function, color primaries, mastering metadata or content-light metadata to the decoder or output. The experimental capability flag remains false. Existing persisted `hdr=auto` / `hdr=sdr` values are compatibility settings only and do not affect playback; startup logs now label them as ignored.
+No HDR playback path is enabled. The receiver detects HEVC Main10 and rejects it before Starfish Load; it does not pass bit depth, transfer function, color primaries, mastering metadata or content-light metadata to the decoder or output. Old settings files may contain `hdr=auto` / `hdr=sdr`; the loader ignores these legacy keys and new saves omit them.
 
 LG's webOS TV 3.5 format table lists Main10 for supported HEVC video playback formats, including UHD on UHD models ([LG format table](https://webostv.developer.lge.com/develop/specifications/video-audio-35)). That documents the TV playback stack, not the raw Starfish `BUFFERSTREAM` contract used here. The public Starfish header declares `setHdrInfo()` without a payload schema, while public NDL HDR metadata fields belong to a different DirectMedia API generation. Neither establishes a usable webOS 3.9/Rockhopper contract. A B7 decoder/output trace is also absent. Main10 and HDR therefore remain unavailable; this milestone does not claim HDR support.
 

@@ -534,10 +534,11 @@ int main() {
             const bool incoming_hevc=pending.codec==2;
             bool valid=false,keyframe=false;
             int input_width=0,input_height=0;
+            HevcFrameInfo hevc_info;
             if(incoming_hevc) {
-                HevcFrameInfo info=hevc.inspect(pending.data.data(),pending.data.size());
-                valid=info.valid;keyframe=info.keyframe;
-                input_width=info.width;input_height=info.height;
+                hevc_info=hevc.inspect(pending.data.data(),pending.data.size());
+                valid=hevc_info.valid;keyframe=hevc_info.keyframe;
+                input_width=hevc_info.width;input_height=hevc_info.height;
             } else {
                 auto info=inspect_h264(pending.data.data(),pending.data.size());
                 valid=info.valid;keyframe=info.keyframe;
@@ -556,6 +557,11 @@ int main() {
                     finish(true);recover_decoder(true,incoming_hevc?"invalid-parameter-sets":"unsupported-h264-stream");
                 }
                 continue;
+            }
+            if(incoming_hevc && !supported_hevc_mirror_profile(hevc_info)) {
+                fprintf(stderr,"[codec] unsupported HEVC profile=%d bit-depth=%d; Main 10/HDR10 path disabled\n",
+                    hevc_info.profile,hevc_info.bit_depth);
+                finish(true);recover_decoder(true,"unsupported-hevc-profile");continue;
             }
             if(input_width) {
                 if(!input_fits_mirror_profile(settings,input_width,input_height)) {

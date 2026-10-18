@@ -75,6 +75,12 @@ int main() {
     assert(landscape.x==0 && landscape.y==0 && landscape.width==1920 && landscape.height==1080);
     VideoWindow portrait=fit_video_window(1080,1920,1920,1080);
     assert(portrait.x==656 && portrait.y==0 && portrait.width==607 && portrait.height==1080);
+    VideoWindow uhd_landscape=fit_video_window(3840,2160,1920,1080);
+    assert(uhd_landscape.x==0 && uhd_landscape.y==0 && uhd_landscape.width==1920 && uhd_landscape.height==1080);
+    VideoWindow uhd_portrait=fit_video_window(2160,3840,1920,1080);
+    assert(uhd_portrait.x==656 && uhd_portrait.y==0 && uhd_portrait.width==607 && uhd_portrait.height==1080);
+    VideoWindow portrait_sps=fit_video_window(996,2160,1920,1080);
+    assert(portrait_sps.x==711 && portrait_sps.y==0 && portrait_sps.width==498 && portrait_sps.height==1080);
     assert(fit_video_window(0,1080,1920,1080).width==0);
     assert(save_settings(settings_path,settings));
     assert(load_settings(settings_path,loaded));

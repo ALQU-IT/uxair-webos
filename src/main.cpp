@@ -660,6 +660,11 @@ int main() {
                 if(++invalid_video>=30) {finish(true);recover_decoder(true,"invalid-access-units");}
                 continue;
             }
+            if(!supported_hevc_mirror_profile(info)) {
+                fprintf(stderr,"[codec] unsupported HEVC profile=%d bit-depth=%d; Main 10/HDR10 path disabled\n",
+                    info.profile,info.bit_depth);
+                finish(true);recover_decoder(true,"unsupported-hevc-profile");continue;
+            }
             if(!input_fits_mirror_profile(settings,info.width,info.height)) {
                 fprintf(stderr,"[codec] HEVC input %dx%d exceeds advertised profile\n",info.width,info.height);
                 finish(true);recover_decoder(true,"unsupported-dimensions");continue;
@@ -669,6 +674,12 @@ int main() {
             if(changed)hevc_wait_keyframe=true;
             if(hevc_wait_keyframe) {
                 if(!info.keyframe) {have_pending=false;continue;}
+                bool parameter_sets_added=false;
+                if(!hevc.prepend_missing_parameter_sets(pending.data,info,parameter_sets_added)) {
+                    finish(true);recover_decoder(true,"hevc-parameter-sets-missing");continue;
+                }
+                if(parameter_sets_added)
+                    fprintf(stderr,"[codec] restored-cached-parameter-sets bytes=%zu before-random-access-frame\n",pending.data.size());
                 media.close();width=info.width;height=info.height;
                 int64_t open_begin=now_ns();
                 bool media_opened=media.open(app_id,width,height,true,44100,

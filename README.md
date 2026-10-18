@@ -4,7 +4,7 @@ An experimental native AirPlay mirroring receiver for rooted LG webOS TVs. Open 
 
 ## Status and validated hardware
 
-This is an experimental `0.1.0` release. It has been validated on an LG **32LJ600B-SA**, firmware **06.10.60**, Rockhopper **3.9.3**, with an ARMv7 Cortex-A9 target. A development build has also been tested on an LG OLED B7 / Rockhopper 3.9.0 with H.264 1080p/30 mirroring, actual 1920×1080 SPS, photos/video through mirroring and stereo audio. The default mirroring profile remains 1280×720 / 30 fps. See [the validation record](docs/VALIDATION.md), [B7 pacing record](docs/MILESTONE2.md), and [capability assessment](docs/CAPABILITIES.md).
+This is an experimental `0.1.0` release. It has been validated on an LG **32LJ600B-SA**, firmware **06.10.60**, Rockhopper **3.9.3**, with an ARMv7 Cortex-A9 target. On an LG OLED B7 / Rockhopper 3.9.0, H.264 1080p/30 and experimental HEVC 4K/30 AirPlay mirroring, Photos/video through mirroring, stereo audio, and HEVC `LOADCOMPLETED`/`PLAYING` callbacks have been confirmed. The default mirroring profile remains 1280×720 / 30 fps. HEVC is opt-in; native 4K output resolution and HDR10/Main10 remain unverified and disabled. See [the validation record](docs/VALIDATION.md), [B7 pacing record](docs/MILESTONE2.md), and [capability assessment](docs/CAPABILITIES.md).
 
 ## Requirements
 
@@ -30,10 +30,10 @@ On the TV, open **UxPlay webOS**. Start Screen Mirroring from an iPhone, iPad, o
 - In the development build, Left/Right changes settings section, Up/Down focuses a row, OK opens a choice dialog, and Back cancels it. Set audio delay from **System Settings** before connecting; positive values play audio later. Settings are saved locally.
 - During playback, OK opens the diagnostics page; Back hides it, then Back again disconnects. Back from the idle Screen Mirroring section, or Exit, closes the app.
 - One transmitting device is accepted at a time.
-- The development app has five settings sections, local usage statistics and diagnostics. See [Milestone 4 controls and TV validation](docs/MILESTONE4.md). Direct media, 4K, HEVC and HDR remain unavailable.
+- The development app has five settings sections, local usage statistics and diagnostics. See [Milestone 4 controls and TV validation](docs/MILESTONE4.md). Direct media remains unavailable; HEVC mirroring is experimental and native 4K output and HDR are unverified.
 - The development package includes a bounded, metadata-only [direct-media request probe](docs/MILESTONE4C.md). Its [temporary `/info` handshake experiment](docs/MILESTONE4D.md) answers only a bodyless HTTP `GET /info`; it does not enable direct playback or change advertised capabilities.
 - The [Milestone 4E transport and native-resolution audit](docs/MILESTONE4E.md) records why a direct 4K photo prototype remains blocked pending a real payload trace, a safe authorization boundary and a verified B7 output surface.
-- The [Milestone 5A HEVC mirroring audit](docs/MILESTONE5.md) records the pinned transport path and the unresolved Rockhopper decoder/UHD output contract. HEVC advertisement remains disabled.
+- The [Milestone 5A HEVC mirroring audit](docs/MILESTONE5.md) records the pinned transport path. HEVC is now an opt-in development setting; see [Milestone 6](docs/MILESTONE6.md) and its follow-up notes.
 - The [Milestone 5B read-only firmware discovery procedure](docs/MILESTONE5B.md) identifies the evidence needed before any standalone HEVC hardware probe is built.
 
 For direct SSH helpers, explicitly set the connection details—no personal network, TV alias, or key path is embedded:
@@ -78,9 +78,9 @@ Diagnostics are written to `uxplay.log`, rotated around 1 MiB with one previous 
 
 ## Supported features and limitations
 
-Supported: AirPlay discovery, PIN pairing, H.264 mirroring, stereo audio with mirroring, iPad rotation, reconnecting, and adjustable audio delay.
+Supported: AirPlay discovery, PIN pairing, H.264 mirroring, stereo audio with mirroring, iPad rotation, reconnecting, and adjustable audio delay. Experimental HEVC 4K/30 mirroring has been verified on the LG OLED B7.
 
-Not supported or not certified: standalone audio-only playback, direct photo/video and HLS playback, full AirPlay 2, HEVC/4K/HDR, recording, startup at boot, broad TV/firmware compatibility, Mac extended display, and low-latency gaming. Starfish buffering on this older platform can add visible latency.
+Not supported or not certified: standalone audio-only playback, direct photo/video and HLS playback, full AirPlay 2, native 4K output resolution, HDR10/Main10 playback, recording, startup at boot, broad TV/firmware compatibility, Mac extended display, and low-latency gaming. Starfish buffering on this older platform can add visible latency.
 
 ## Troubleshooting
 

@@ -53,10 +53,12 @@ bool sps(const uint8_t *data, size_t size, Sample& result) {
             left + right >= width/2 || top + bottom >= height/2) return false;
         width -= 2 * (left + right); height -= 2 * (top + bottom);
     }
-    if (!b.ue(depth_y) || !b.ue(depth_c) || profile != 1 || depth_y != 0 || depth_c != 0 ||
+    if (!b.ue(depth_y) || !b.ue(depth_c) ||
+        !((profile==1 && depth_y==0 && depth_c==0) ||
+          (profile==2 && depth_y==depth_c && (depth_y==0 || depth_y==2))) ||
         width == 0 || height == 0 || width > 4096 || height > 2160) return false;
     result.width = int(width); result.height = int(height);
-    result.bit_depth = 8; result.profile = int(profile);
+    result.bit_depth = int(depth_y+8); result.profile = int(profile);
     result.vps_id=int(vps_id);result.sps_id=int(sps_id);
     return true;
 }
@@ -131,7 +133,8 @@ bool inspect(const uint8_t *bytes, size_t size, int expected_width,
         error = "final-access-unit-bound"; return false;
     }
     result.units.push_back({au_start, size - au_start});
-    if (result.width != expected_width || result.height != expected_height || result.units.empty()) {
+    if (result.width != expected_width || result.height != expected_height || result.units.empty() ||
+        result.profile!=1 || result.bit_depth!=8) {
         error = "dimension-mismatch"; return false;
     }
     return true;

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/b7-optimization
+      - codex/milestones-6-2-6-4
   workflow_dispatch:
 
 permissions:

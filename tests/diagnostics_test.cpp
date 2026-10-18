@@ -26,6 +26,7 @@ int main() {
     assert(measured_pts_fps>59.9 && measured_pts_fps<60.1);
 
     // Backwards timestamps and large discontinuities do not pollute cadence.
+    timing.reset();
     timing.record(4000000000ULL);
     timing.record(3990000000ULL);
     timing.record(9000000000ULL);

@@ -1,5 +1,9 @@
 #include "ui_navigation.h"
 
+bool session_ui_redraw_due(bool opened, bool visible, int64_t last_render_ns, int64_t now_ns) {
+    return opened && visible && (last_render_ns==0 || now_ns-last_render_ns>=1000000000LL);
+}
+
 void UiNavigation::category(int index) {
     if (dialog!=UiDialogKind::None || index<0 || index>=4) return;
     page=static_cast<UiPage>(index);

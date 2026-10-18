@@ -50,7 +50,7 @@ bool Shell::open() {
     window = SDL_CreateWindow(UXPLAY_DISPLAY_NAME,0,0,mode.w,mode.h,SDL_WINDOW_FULLSCREEN);
     if (window) renderer = SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED);
     if (!renderer) { fprintf(stderr,"[SDL] %s\n",SDL_GetError()); return false; }
-    fprintf(stderr,"[SDL] window %dx%d\n",mode.w,mode.h);
+    fprintf(stderr,"[SDL] graphics-window=%dx%d (logical app coordinates)\n",mode.w,mode.h);
     if(TTF_Init()!=0) return false;
     font_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",30);
     large_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",76);

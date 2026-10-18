@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 
 enum class UiPage { Mirroring, Media, Diagnostics, System, History };
 enum class UiDialogKind { None, Resolution, Codec, Overlay, AudioDelay, ResetHistory };
@@ -18,3 +19,7 @@ struct UiNavigation {
     // Returns false only when Back is at the top-level mirroring page.
     bool back();
 };
+
+// Session UI redraws are normally throttled to one second. A zero timestamp
+// marks input or state changes that should be reflected on the next loop.
+bool session_ui_redraw_due(bool opened, bool visible, int64_t last_render_ns, int64_t now_ns);

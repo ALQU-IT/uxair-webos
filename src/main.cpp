@@ -108,7 +108,7 @@ int main() {
     uint64_t live_ingress_last=0,live_feed_last=0;
     ReceiverDiagnostics live_queue;
     long live_rss_kb=-1;
-    bool opened=false,have_pending=false,last_paused=false,audio_started=false,audio_only_playback=false,audio_only_failed=false,hevc_wait_keyframe=false;
+    bool opened=false,have_pending=false,last_paused=false,audio_started=false,audio_only_playback=false,audio_only_failed=false,audio_flush_paused=false,hevc_wait_keyframe=false;
     bool hevc_preroll_wait_logged=false,hevc_keyframe_wait_logged=false;
     bool hevc_schedule_wait_logged=false,hevc_invalid_logged=false;
     bool hevc_first_feed_logged=false;
@@ -158,7 +158,7 @@ int main() {
             if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] could not save usage history\n");
         }
         media.close();decoder.reset();hevc.reset();hevc_startup.reset();receiver.disconnect();opened=false;have_pending=false;
-        origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;audio_only_playback=false;
+        origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;audio_only_playback=false;audio_flush_paused=false;
         session_success=false;session_started_utc=0;observed_width=observed_height=0;hardware_decoder_errors=0;
         nav=UiNavigation();ui_visible=true;
         video_feed_timing.reset();video_parse_time.reset();video_schedule_late.reset();video_pending_time.reset();
@@ -445,12 +445,16 @@ int main() {
         if(receiver.audio_flush.exchange(false)) {
             decoder.reset();
             if(have_pending && !pending.video)have_pending=false;
+            if(opened && audio_only_playback) {
+                audio_flush_paused=true;
+                fprintf(stderr,"[audio-only] RAOP FLUSH paused Starfish until the next audio packet\n");
+            }
         }
         if(opened) {
             int64_t tick_begin=now_ns();
             media.tick();
             media_tick_time.record(uint64_t(std::max<int64_t>(0,now_ns()-tick_begin)));
-            bool paused=receiver.paused;
+            bool paused=audio_only_playback?audio_flush_paused:receiver.paused.load();
             if(paused!=last_paused) {media.pause(paused);last_paused=paused;}
             if(media.failed) {
                 ++hardware_decoder_errors;recover_playback("starfish-error");
@@ -842,6 +846,10 @@ int main() {
         }
         if(!pending.video && receiver.audio_flush.exchange(false)) {
             decoder.reset();have_pending=false;continue;
+        }
+        if(audio_only_playback && !pending.video && audio_flush_paused) {
+            audio_flush_paused=false;media.pause(false);last_paused=false;
+            fprintf(stderr,"[audio-only] resumed Starfish on new audio packet\n");
         }
         if(!pending.video) audio_started=true;
         if(!pending.video && pts<audio_end) {

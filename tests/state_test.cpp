@@ -35,6 +35,7 @@ int main() {
     assert(!profile.direct_video && !profile.hls && !profile.hevc && profile.legacy_pairing);
     assert((UXPLAY_PINNED_FEATURES & (1ULL<<0))==0 && (UXPLAY_PINNED_FEATURES & (1ULL<<4))==0);
     assert((UXPLAY_PINNED_FEATURES & (1ULL<<42))==0 && (UXPLAY_PINNED_FEATURES & (1ULL<<27))!=0);
+    assert(!UXPLAY_HDR10_EXPERIMENTAL_ENABLED);
     settings.hdr=HdrPolicy::Sdr;settings.diagnostics=DiagnosticsMode::Detailed;
     assert(save_settings(settings_path,settings));
     Settings loaded;
@@ -59,6 +60,13 @@ int main() {
     assert(mirror_limits(settings).queue_bytes==8*1024*1024);
     Settings hevc=settings;
     assert(set_mirror_codec(hevc,MirrorCodec::ExperimentalHevc));
+    assert(hevc.width==1920 && hevc.height==1080); // codec selection preserves a supported size
+    assert(set_mirror_resolution(hevc,1280,720));
+    AdvertisedCapabilities hevc_720=advertised_capabilities(hevc);
+    assert(hevc_720.hevc && hevc_720.width==1280 && hevc_720.height==720);
+    assert(set_mirror_resolution(hevc,1920,1080));
+    AdvertisedCapabilities hevc_1080=advertised_capabilities(hevc);
+    assert(hevc_1080.hevc && hevc_1080.width==1920 && hevc_1080.height==1080);
     assert(set_mirror_resolution(hevc,3840,2160));
     assert(input_fits_mirror_profile(hevc,3840,2160));
     assert(!input_fits_mirror_profile(hevc,4096,2160));
@@ -70,7 +78,8 @@ int main() {
     assert(load_settings(settings_path,loaded));
     assert(loaded.codec==MirrorCodec::ExperimentalHevc && loaded.width==3840);
     assert(set_mirror_codec(hevc,MirrorCodec::H264));
-    assert(hevc.width==1280 && hevc.height==720);
+    assert(hevc.width==1920 && hevc.height==1080); // UHD -> highest supported H.264 profile
+    assert(!advertised_capabilities(hevc).hevc);
     VideoWindow landscape=fit_video_window(1920,1080,1920,1080);
     assert(landscape.x==0 && landscape.y==0 && landscape.width==1920 && landscape.height==1080);
     VideoWindow portrait=fit_video_window(1080,1920,1920,1080);

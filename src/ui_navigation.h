@@ -1,7 +1,7 @@
 #pragma once
 
-enum class UiPage { Mirroring, Media, Diagnostics, Statistics, System, History };
-enum class UiDialogKind { None, Resolution, Codec, Hdr, Overlay, AudioDelay, ResetHistory };
+enum class UiPage { Mirroring, Media, Diagnostics, System, History };
+enum class UiDialogKind { None, Resolution, Codec, Overlay, AudioDelay, ResetHistory };
 
 struct UiNavigation {
     UiPage page = UiPage::Mirroring;

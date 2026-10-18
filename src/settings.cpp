@@ -24,7 +24,8 @@ bool set_mirror_codec(Settings& settings, MirrorCodec codec) {
     if(codec!=MirrorCodec::H264 && codec!=MirrorCodec::ExperimentalHevc) return false;
     settings.codec=codec;
     if(codec==MirrorCodec::H264 && settings.width==3840) {
-        settings.width=1280; settings.height=720;
+        // H.264 supports the existing 1080p profile; only UHD requires HEVC.
+        settings.width=1920; settings.height=1080;
     }
     return true;
 }

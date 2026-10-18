@@ -23,7 +23,7 @@ struct MirrorLimits {
 struct VideoWindow { int x, y, width, height; };
 enum class ProfileSwitchResult { Unchanged, Applied, Recovered, Unavailable };
 
-// Only H.264 at 30 FPS is enabled. 1080p is experimental until B7 tested.
+// Supported sender limits: H.264 through 1080p and HEVC through UHD, all at 30 FPS.
 bool supported_mirror_resolution(int width, int height);
 bool supported_mirror_fps(int fps);
 bool set_mirror_resolution(Settings& settings, int width, int height);

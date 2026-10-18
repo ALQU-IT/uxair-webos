@@ -147,17 +147,17 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
     SDL_SetRenderDrawColor(renderer,15,30,43,255);SDL_RenderFillRect(renderer,&side);
     SDL_Rect accent={0,0,w,7};
     SDL_SetRenderDrawColor(renderer,66,216,177,255);SDL_RenderFillRect(renderer,&accent);
-    const char *categories[]={"Screen Mirroring","Photos & Video","Playback Diagnostics","Usage Statistics","System Settings"};
-    const char *titles[]={"Screen Mirroring","Photos & Video","Playback Diagnostics","Usage Statistics","System Settings","Recent Sessions"};
-    int index=int(page_id);if(index<0||index>5)index=0;
-    int category=index==5?3:index;
+    const char *categories[]={"Video","Audio","Diagnostics","About"};
+    const char *titles[]={"Video","Audio","Diagnostics","About","Recent Sessions"};
+    int index=int(page_id);if(index<0||index>4)index=0;
+    int category=index==4?2:index;
     text_at("UXPLAY",w/28,h/18,sidebar-40,large_,{77,226,185,255});
     text_at("webOS Dev",w/28,h/8,sidebar-40,small_,{154,185,202,255});
     text_at(titles[index],panel,h/20,w-panel-35,large_,{239,247,249,255});
     text_at(subtitle,panel,h/7,w-panel-35,font_,{154,185,202,255});
     const int top=h/4;
     const int row_height=std::max(66,h/11);
-    for(int i=0;i<5;++i) {
+    for(int i=0;i<4;++i) {
         int y=top+i*row_height;
         if(i==category) {
             SDL_Rect tab={14,y-5,sidebar-28,row_height-6};

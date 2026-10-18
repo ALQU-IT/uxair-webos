@@ -27,13 +27,13 @@ The package is `dist/com.github.danlflh.uxplaywebos_0.1.0_arm.ipk`. Changing fro
 
 On the TV, open **UxPlay webOS**. Start Screen Mirroring from an iPhone, iPad, or Mac and select **UxPlay webOS**. Enter the PIN when prompted. On macOS, select **UxPlay webOS** as the audio output if it is not selected automatically.
 
-- In the development build, Left/Right changes settings section, Up/Down focuses a row, OK opens a choice dialog, and Back cancels it. Set audio delay from **System Settings** before connecting; positive values play audio later. Settings are saved locally.
+- In the development build, Left/Right changes between **Video**, **Audio**, **Diagnostics** and **About**; Up/Down focuses a row, OK opens a choice dialog, and Back cancels it. Set audio delay from **Audio** before connecting; positive values play audio later. Settings are saved locally.
 - During playback, OK opens the diagnostics page; Back hides it, then Back again disconnects. Back from the idle Screen Mirroring section, or Exit, closes the app.
 - One transmitting device is accepted at a time.
-- The development app has five settings sections, local usage statistics and diagnostics. See [Milestone 4 controls and TV validation](docs/MILESTONE4.md). Direct media remains unavailable; HEVC mirroring is experimental and native 4K output and HDR are unverified.
+- The development app has four focused settings sections, local session history and diagnostics. See [Milestone 7](docs/MILESTONE7.md). Direct media remains unavailable; HEVC mirroring is experimental and native 4K output and HDR are unverified.
 - The development package includes a bounded, metadata-only [direct-media request probe](docs/MILESTONE4C.md). Its [temporary `/info` handshake experiment](docs/MILESTONE4D.md) answers only a bodyless HTTP `GET /info`; it does not enable direct playback or change advertised capabilities.
 - The [Milestone 4E transport and native-resolution audit](docs/MILESTONE4E.md) records why a direct 4K photo prototype remains blocked pending a real payload trace, a safe authorization boundary and a verified B7 output surface.
-- The [Milestone 5A HEVC mirroring audit](docs/MILESTONE5.md) records the pinned transport path. HEVC is now an opt-in development setting; see [Milestone 6](docs/MILESTONE6.md) and its follow-up notes.
+- The [Milestone 5A HEVC mirroring audit](docs/MILESTONE5.md) records the pinned transport path. HEVC is an opt-in development setting; see [Milestone 6](docs/MILESTONE6.md) and [Milestone 7](docs/MILESTONE7.md).
 - The [Milestone 5B read-only firmware discovery procedure](docs/MILESTONE5B.md) identifies the evidence needed before any standalone HEVC hardware probe is built.
 
 For direct SSH helpers, explicitly set the connection details—no personal network, TV alias, or key path is embedded:

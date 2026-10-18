@@ -1,14 +1,14 @@
 #include "ui_navigation.h"
 
 void UiNavigation::category(int index) {
-    if (dialog!=UiDialogKind::None || index<0 || index>=5) return;
+    if (dialog!=UiDialogKind::None || index<0 || index>=4) return;
     page=static_cast<UiPage>(index);
     focus=0;
 }
 void UiNavigation::move_category(int delta) {
     if (dialog!=UiDialogKind::None) return;
-    int current=page==UiPage::History?3:static_cast<int>(page);
-    category((current+delta+5)%5);
+    int current=page==UiPage::History?2:static_cast<int>(page);
+    category((current+delta+4)%4);
 }
 void UiNavigation::move_row(int delta, int count) {
     if (dialog!=UiDialogKind::None || count<=0) return;
@@ -29,7 +29,7 @@ int UiNavigation::confirm() {
 }
 bool UiNavigation::back() {
     if (dialog!=UiDialogKind::None) {dialog=UiDialogKind::None;choice=0;return true;}
-    if (page==UiPage::History) {page=UiPage::Statistics;focus=0;return true;}
+    if (page==UiPage::History) {page=UiPage::Diagnostics;focus=0;return true;}
     if (page!=UiPage::Mirroring) {page=UiPage::Mirroring;focus=0;return true;}
     return false;
 }

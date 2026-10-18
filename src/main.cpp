@@ -64,7 +64,7 @@ int main() {
         }
     }
     Settings settings;
-    if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d codec=%s hdr=%s diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.codec==MirrorCodec::ExperimentalHevc?"experimental-HEVC":"H264",settings.hdr==HdrPolicy::Sdr?"SDR":"Auto (SDR fallback)",diagnostics_mode_name(settings.diagnostics));
+    if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d codec=%s hdr10-pipeline=%s legacy-hdr-pref=%s diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.codec==MirrorCodec::ExperimentalHevc?"experimental-HEVC":"H264",UXPLAY_HDR10_EXPERIMENTAL_ENABLED?"enabled":"disabled",settings.hdr==HdrPolicy::Sdr?"SDR":"auto",diagnostics_mode_name(settings.diagnostics));
     UsageStats usage;
     load_usage_stats(state_dir+"/usage-v1",usage);
     Receiver receiver;
@@ -195,56 +195,50 @@ int main() {
     auto rows_for=[&](UiPage which)->std::vector<UiRow> {
         std::vector<UiRow> rows;
         if(which==UiPage::Mirroring) {
-            rows.push_back(UiRow("Resolution",settings.width==3840?"4K / 30 experimental":settings.width==1920?"1080p / 30":"720p / 30","4K requires experimental HEVC; reconnect after change",receiver.idle_for_profile_change()));
-            rows.push_back(UiRow("Video codec",settings.codec==MirrorCodec::ExperimentalHevc?"Experimental HEVC / H.265":"H.264 only","HEVC is unverified in AirPlay on B7; change before connecting",receiver.idle_for_profile_change()));
-            rows.push_back(UiRow("Maximum frame rate","30 FPS","60 FPS is not validated on this receiver",false));
-            rows.push_back(UiRow("Actual incoming SPS",observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting video","Source dimensions, not the TV window size",false));
-            rows.push_back(UiRow("AirPlay receiver",receiver.status(),"H.264 720p is the recovery profile",false));
+            rows.push_back(UiRow("Resolution",settings.width==3840?"4K / 30":settings.width==1920?"1080p / 30":"720p / 30","H.264: up to 1080p; HEVC: up to 4K. Reconnect after change",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Video codec",settings.codec==MirrorCodec::ExperimentalHevc?"HEVC / H.265 (experimental)":"H.264","HEVC is advertised at every resolution; sender choice is reported below",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Maximum frame rate","30 FPS","Supported sender limit",false));
+            rows.push_back(UiRow("Incoming SPS",observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting video","Parsed source dimensions; not output resolution",false));
+            rows.push_back(UiRow("HDR10 / Main10",UXPLAY_HDR10_EXPERIMENTAL_ENABLED?"Experimental":"Unavailable","No verified decoder metadata path on webOS 3.9; Main10 is rejected",false));
+            rows.push_back(UiRow("AirPlay receiver",receiver.status(),"If the sender chooses an unsupported codec, reconnect with H.264",false));
         } else if(which==UiPage::Media) {
-            rows.push_back(UiRow("Direct photos","Unavailable","Photos shown through screen mirroring still work",false));
-            rows.push_back(UiRow("Direct video","Unavailable","HLS and Photos direct-video handling are not enabled",false));
-            rows.push_back(UiRow("Preferred quality","Auto","No independent direct-media quality modes yet",false));
-            rows.push_back(UiRow("HDR policy",settings.hdr==HdrPolicy::Auto?"Auto":"SDR","Auto currently falls back to SDR"));
-            rows.push_back(UiRow("HEVC / 4K","Experimental mirroring","Main 8-bit SDR only; no direct media or native output proof",false));
-            rows.push_back(UiRow("HDR10 / HLG / Dolby Vision","Unavailable","Color metadata and output signaling are unverified",false));
-        } else if(which==UiPage::Statistics) {
-            rows.push_back(UiRow("Total playback",duration_text(usage.playback_ms),"Counted after Starfish begins playing"));
-            rows.push_back(UiRow("Successful sessions",std::to_string(usage.successful_sessions),"Mirror "+std::to_string(usage.mirror_sessions)+"  Audio "+std::to_string(usage.audio_sessions)+"  Direct "+std::to_string(usage.direct_sessions)));
-            rows.push_back(UiRow("Last session",usage.recent.empty()?"Never":utc_text(usage.recent.front().started_utc),usage.recent.empty()?"No completed session":duration_text(usage.recent.front().duration_ms)+(usage.recent.front().codec==2?"  HEVC ":"  H.264 ")+std::to_string(usage.recent.front().width)+"x"+std::to_string(usage.recent.front().height)));
-            rows.push_back(UiRow("Recent sessions","Open",std::to_string(usage.recent.size())+" local summaries retained"));
-            double hours=usage.playback_ms/3600000.0;
-            rows.push_back(UiRow("Lifetime input / feed",hours>0?fmt("%.1f",usage.incoming_frames/(hours*3600))+" / "+fmt("%.1f",usage.feed_frames/(hours*3600))+" FPS":"No data","Averages include still-image periods; not displayed FPS"));
-            rows.push_back(UiRow("Frame / packet drops",std::to_string(usage.video_frame_drops)+" / "+std::to_string(usage.packet_drops),"Decode errors "+std::to_string(usage.decoder_errors)+"  Session errors "+std::to_string(usage.session_errors)));
-            rows.push_back(UiRow("Reset usage history","Confirm","Pairing and receiver identity are retained"));
+            rows.push_back(UiRow("Audio delay",std::to_string(receiver.audio_delay_ms.load())+" ms","Set before connecting; step size 25 ms",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Incoming audio",receiver.has_audio?audio_codec_name(receiver.last_audio_codec.load()):"Awaiting audio","AirPlay audio stream status",false));
+            rows.push_back(UiRow("Audio output","PCM stereo 44.1 kHz","Decoded by the app and sent to Starfish",false));
+            rows.push_back(UiRow("Photos and video","Screen mirroring","Direct Photos, HLS and direct-video are unavailable",false));
         } else if(which==UiPage::Diagnostics) {
             rows.push_back(UiRow("On-screen overlay",diagnostics_mode_name(settings.diagnostics),"Off, Compact or Detailed"));
             std::string resolution=observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting SPS";
-            rows.push_back(UiRow("Negotiated / input",resolution,
-                std::string(receiver.incoming_video_codec==2?"HEVC Main8; SDR output":receiver.incoming_video_codec==1?"H.264; SDR output":"Awaiting codec")+
-                "; advertised "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" /30"));
+            rows.push_back(UiRow("Negotiated codec / SPS",std::string(receiver.incoming_video_codec==2?"HEVC":receiver.incoming_video_codec==1?"H.264":"Awaiting codec")+"  "+resolution,
+                "Advertised limit "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" / 30 FPS; sender may choose H.264 with HEVC enabled"));
             rows.push_back(UiRow("Incoming / feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),"One-second callback and accepted-feed windows"));
-            rows.push_back(UiRow("Source PTS / display FPS",fmt("%.1f",live_pts_fps)+" / N/A",
-                "Starfish info "+std::to_string(media.video_info_width.load())+"x"+std::to_string(media.video_info_height.load())+
-                "; ACB request "+std::to_string(media.acb_window_width.load())+"x"+std::to_string(media.acb_window_height.load())+"; output unmeasured"));
+            rows.push_back(UiRow("PTS / display FPS",fmt("%.1f",live_pts_fps)+" / unavailable",
+                "Starfish video-info "+std::to_string(media.video_info_width.load())+"x"+std::to_string(media.video_info_height.load())+
+                "; requested ACB window "+std::to_string(media.acb_window_width.load())+"x"+std::to_string(media.acb_window_height.load())+"; output plane unmeasured"));
             rows.push_back(UiRow("Video / audio queue",std::to_string(live_queue.video_queue_packets)+" / "+std::to_string(live_queue.queue_packets-live_queue.video_queue_packets),"Video queue residence "+fmt("%.1f",live_queue_ms)+" ms, last 5s"));
             rows.push_back(UiRow("Starfish",media.failed?"Error":media.playing?"Playing":media.ready?"Loaded":opened?"Loading":"Idle",
                 "Feed "+std::to_string(media.feed_video_accepted.load())+" accepted / "+std::to_string(media.feed_video_rejected.load())+" rejected; "+fmt("%.1f",live_feed_ms)+" ms avg"));
-            rows.push_back(UiRow("Session / memory",session_started?duration_text(uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000):"Idle",(live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB RSS":"RSS unavailable")+"  fallback "+(fallback_reason.empty()?"none":fallback_reason)));
+            rows.push_back(UiRow("Session / memory",session_started?duration_text(uint64_t(std::max<int64_t>(0,now_ns()-session_started))/1000000):"Idle",
+                (live_rss_kb>=0?fmt("%.1f",live_rss_kb/1024.0)+" MiB RSS":"RSS unavailable")+"; "+std::to_string(usage.successful_sessions)+" sessions; "+
+                (fallback_reason.empty()?"no fallback":"fallback "+fallback_reason)+"; select for history"));
         } else if(which==UiPage::History) {
-            for(size_t i=0;i<usage.recent.size() && i<7;++i) {
+            for(size_t i=0;i<usage.recent.size() && i<6;++i) {
                 const SessionSummary& s=usage.recent[i];
                 double seconds=s.duration_ms/1000.0;
                 rows.push_back(UiRow(utc_text(s.started_utc),duration_text(s.duration_ms),
                     std::string(session_kind_name(s.kind))+(s.codec==2?" HEVC ":" H.264 ")+std::to_string(s.width)+"x"+std::to_string(s.height)+
                     "  input/feed "+fmt("%.1f",seconds?s.incoming_frames/seconds:0)+"/"+fmt("%.1f",seconds?s.feed_frames/seconds:0)+" FPS"));
             }
-            if(rows.empty())rows.push_back(UiRow("No completed sessions yet","","Playback history stays on this TV"));
+            if(rows.empty())rows.push_back(UiRow("No completed sessions yet","","Playback history stays on this TV",false));
+            while(rows.size()<6)rows.push_back(UiRow("","","",false));
+            rows.push_back(UiRow("Reset usage history","Confirm","Pairing and receiver identity are retained"));
         } else if(which==UiPage::System) {
-            rows.push_back(UiRow("Audio delay",std::to_string(receiver.audio_delay_ms.load())+" ms","Set before connecting; step size 25 ms",receiver.idle_for_profile_change()));
             rows.push_back(UiRow("Application version",build_version,"Source commit "+build_commit,false));
-            rows.push_back(UiRow("Receiver",receiver.status(),"Pairing and receiver identity are stored privately",false));
+            rows.push_back(UiRow("Device target","LG webOS 3.9 / ARMv7","Build target; runtime firmware identification is unavailable",false));
+            rows.push_back(UiRow("Supported profiles","H.264 720p/1080p; HEVC up to 4K","30 FPS; selected maximum and actual sender codec are shown in Video diagnostics",false));
+            rows.push_back(UiRow("HDR10 / Main10",UXPLAY_HDR10_EXPERIMENTAL_ENABLED?"Experimental":"Disabled","Requires verified firmware API and hardware testing",false));
+            rows.push_back(UiRow("Receiver",receiver.status(),"Pairing and receiver identity remain in app-private storage",false));
             rows.push_back(UiRow("Logs","uxplay.log","Previous session: uxplay.log.previous",false));
-            rows.push_back(UiRow("Recovery","Select 720p","Reconnect sender after changing resolution",false));
         }
         return rows;
     };
@@ -259,12 +253,8 @@ int main() {
                 break;
             case UiDialogKind::Codec:
                 d.current=settings.codec==MirrorCodec::ExperimentalHevc?1:0;
-                d.title="Screen mirroring codec";d.description="Experimental HEVC Main 8-bit SDR; no HDR or direct media. Reconnect sender.";
-                d.choices={"H.264 only  -  safe default","Experimental HEVC / H.265  -  B7 AirPlay unverified"};break;
-            case UiDialogKind::Hdr:
-                d.current=settings.hdr==HdrPolicy::Sdr?1:0;
-                d.title="HDR policy";d.description="True HDR is not available; Auto uses SDR.";
-                d.choices={"Auto (SDR fallback)","SDR only"};break;
+                d.title="Screen mirroring codec";d.description="HEVC is offered at every supported resolution; sender choice is not guaranteed. Reconnect after change.";
+                d.choices={"H.264 only  -  safe default","Experimental HEVC / H.265  -  Main 8-bit SDR"};break;
             case UiDialogKind::Overlay:
                 d.current=int(settings.diagnostics);
                 d.title="Playback diagnostics overlay";d.description="Incoming and feed FPS are not displayed FPS.";
@@ -361,10 +351,7 @@ int main() {
                 int choice=nav.confirm();
                 if(kind==UiDialogKind::Resolution && choice>=0 && choice<=(settings.codec==MirrorCodec::ExperimentalHevc?2:1))apply_resolution(choice==2?3840:choice?1920:1280);
                 else if(kind==UiDialogKind::Codec && choice>=0 && choice<=1)apply_codec(choice?MirrorCodec::ExperimentalHevc:MirrorCodec::H264);
-                else if(kind==UiDialogKind::Hdr && choice>=0 && choice<=1) {
-                    settings.hdr=choice?HdrPolicy::Sdr:HdrPolicy::Auto;
-                    if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");
-                } else if(kind==UiDialogKind::Overlay && choice>=0 && choice<=2) {
+                else if(kind==UiDialogKind::Overlay && choice>=0 && choice<=2) {
                     settings.diagnostics=DiagnosticsMode(choice);
                     if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");
                 } else if(kind==UiDialogKind::AudioDelay && choice>=0 && choice<=80 && receiver.idle_for_profile_change())
@@ -377,11 +364,10 @@ int main() {
                 if(focus>=0 && focus<int(rows.size()) && rows[focus].enabled) {
                     if(page==UiPage::Mirroring && focus==0)nav.begin(UiDialogKind::Resolution,settings.width==3840?2:settings.width==1920?1:0);
                     else if(page==UiPage::Mirroring && focus==1)nav.begin(UiDialogKind::Codec,settings.codec==MirrorCodec::ExperimentalHevc?1:0);
-                    else if(page==UiPage::Media && focus==3)nav.begin(UiDialogKind::Hdr,settings.hdr==HdrPolicy::Sdr?1:0);
                     else if(page==UiPage::Diagnostics && focus==0)nav.begin(UiDialogKind::Overlay,int(settings.diagnostics));
-                    else if(page==UiPage::Statistics && focus==3) {page=UiPage::History;focus=0;}
-                    else if(page==UiPage::Statistics && focus==6)nav.begin(UiDialogKind::ResetHistory,0);
-                    else if(page==UiPage::System && focus==0)nav.begin(UiDialogKind::AudioDelay,(receiver.audio_delay_ms.load()+1000)/25);
+                    else if(page==UiPage::Diagnostics && focus==6) {page=UiPage::History;focus=0;}
+                    else if(page==UiPage::History && focus==6)nav.begin(UiDialogKind::ResetHistory,0);
+                    else if(page==UiPage::Media && focus==0)nav.begin(UiDialogKind::AudioDelay,(receiver.audio_delay_ms.load()+1000)/25);
                 }
             }
             last_ui=0;

@@ -1,10 +1,11 @@
 {
-  "id": "com.github.danlflh.uxplaywebos",
-  "version": "0.1.0",
-  "vendor": "UxPlay webOS",
+  "id": "com.github.depius.uxair",
+  "version": "1.0.0",
+  "vendor": "UxAir",
+  "appDescription": "UxAir is a native AirPlay mirroring receiver for compatible rooted LG webOS TVs, based on the open-source UxPlay project.",
   "type": "native",
-  "main": "uxplay-webos",
-  "title": "UxPlay webOS",
+  "main": "uxair",
+  "title": "UxAir",
   "icon": "icon.png",
   "requiredMemory": 96
 }

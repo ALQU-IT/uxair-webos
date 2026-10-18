@@ -1,6 +1,6 @@
 #!/bin/sh
 # Read-only, bounded Rockhopper media-status sampler. Never print raw Luna JSON.
-APP=com.github.danlflh.uxplaywebos.hevcprobe
+APP=com.github.depius.uxair.hevcprobe
 
 case "${1:-snapshot}" in
     snapshot) count=1 ;;

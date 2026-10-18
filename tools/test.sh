@@ -5,6 +5,10 @@ mkdir -p build/tests
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/diagnostics_test.cpp -o build/tests/diagnostics-test
 build/tests/diagnostics-test
 echo 'PASS: arrival/PTS gap attribution, timing windows, duration samples and reset'
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/audio_session_test.cpp -o build/tests/audio-session-test
+build/tests/audio-session-test
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/media_payload_test.cpp src/settings.cpp -o build/tests/media-payload-test
+build/tests/media-payload-test
 if [[ "${1:-}" == "--diagnostics-only" ]]; then
   exit 0
 fi

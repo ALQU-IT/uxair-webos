@@ -2,10 +2,10 @@
 
 // The development package has its own launcher identity, AirPlay name, and
 // app-local state directory. Keep the ACB fallback ID in step with appinfo.json.
-#ifdef UXPLAY_DEV_BUILD
-#define UXPLAY_APP_ID "com.github.danlflh.uxplaywebos.dev"
-#define UXPLAY_DISPLAY_NAME "UxPlay webOS Dev"
+#ifdef UXAIR_DEV_BUILD
+#define UXAIR_APP_ID "com.github.depius.uxair.dev"
+#define UXAIR_DISPLAY_NAME "UxAir Dev"
 #else
-#define UXPLAY_APP_ID "com.github.danlflh.uxplaywebos"
-#define UXPLAY_DISPLAY_NAME "UxPlay webOS"
+#define UXAIR_APP_ID "com.github.depius.uxair"
+#define UXAIR_DISPLAY_NAME "UxAir"
 #endif

@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - Release candidate
+
+### Added
+
+- UxAir application identity, launcher branding, and 80/256/512 px icon assets, packaged under a new app ID to preserve existing UxPlay installations and pairing data.
+- Standalone RAOP audio playback using the existing Starfish BUFFERSTREAM and PCM output path for negotiated AAC-LC, AAC-ELD, ALAC, and PCM streams.
+- Audio session negotiation and lifecycle diagnostics, volume/mute handling, existing RAOP pause/flush/reconnect handling, and focused audio-mode tests.
+- UxAir release documentation, source-package instructions, ARMv7 RC artifact workflow, checksum generation, and separate Audio session history.
+
+### Changed
+
+- Verified HEVC and 60 FPS options no longer carry obsolete experimental labels; sender codec/rate selection and unmeasured display FPS remain accurately described.
+- Replaced the legacy UxPlay launcher identity with `com.github.depius.uxair`; old development installations are retained as a separate app and are never removed automatically.
+- Updated public metadata, executable naming, packaging, and CI artifact names for UxAir.
+
+### Limitations
+
+- Standalone AirPlay audio is implemented but awaits physical LG B7 validation; protected streams, unsupported protocols, and AirPlay 2 are not modified or claimed.
+- Buy Me a Coffee is not configured; no creator username or donation URL is published.
+- HDR10/Main10, native 4K scanout, and output/display FPS measurement remain unavailable.
+
 ## [Unreleased]
 
 ### Added

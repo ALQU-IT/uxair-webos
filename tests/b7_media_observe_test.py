@@ -22,7 +22,7 @@ case "$4" in
   *avoutput*)
     echo '{"video":[{"connectedSource":"VDEC","sourceInput":{"width":3840,"height":2160},"displayOutput":{"width":1920,"height":1080},"sink":"MAIN","context":"SECRET_CONTEXT"}],"returnValue":true}' ;;
   *media*)
-    echo '{"acbs":[{"width":1920,"height":1080,"pipelineId":"SECRET_PIPELINE"}],"appId":"com.github.danlflh.uxplaywebos.hevcprobe","returnValue":true}' ;;
+    echo '{"acbs":[{"width":1920,"height":1080,"pipelineId":"SECRET_PIPELINE"}],"appId":"com.github.depius.uxair.hevcprobe","returnValue":true}' ;;
 esac
 ''')
         for name in ("timeout", "pidof", "luna-send"):

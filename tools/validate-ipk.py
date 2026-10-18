@@ -68,14 +68,14 @@ def main():
         packaged = json.loads(content('appinfo.json'))
         if packaged != app:
             fail('packaged appinfo differs from staged metadata')
-        if not content('uxplay-webos') or not content('lib/libstdc++.so.6'):
+        if not content('uxair') or not content('lib/libstdc++.so.6'):
             fail('missing receiver or private C++ runtime')
         build_info = content('build-info.txt').decode('ascii')
         if not re.fullmatch(r'version=[^\n]+\ncommit=[0-9a-f]{40}\n', build_info):
             fail('missing valid source commit metadata')
         if build_info != (stage / 'build-info.txt').read_text():
             fail('packaged build metadata differs from staged source commit')
-        forbidden = {'paired.keys', 'server.key', 'device.id', 'uxplay.log', 'audio-delay-ms'}
+        forbidden = {'paired.keys', 'server.key', 'device.id', 'uxplay.log', 'uxair.log', 'audio-delay-ms'}
         if any('state' in pathlib.PurePosixPath(name).parts or pathlib.PurePosixPath(name).name in forbidden for name in files):
             fail('private pairing, settings, or log file included')
     print(f'PASS: {package.name} contains the {app["title"]} receiver and no private state')

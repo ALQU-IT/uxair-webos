@@ -12,7 +12,7 @@ public:
     ~Media();
     bool open(const char *app_id, int width, int height, bool audio, int sample_rate = 44100,
               int video_source_buffer_bytes = 1048576, int canvas_width = 0, int canvas_height = 0,
-              MirrorCodec codec = MirrorCodec::H264, int max_fps = 30);
+              MirrorCodec codec = MirrorCodec::H264, int max_fps = 30, bool audio_only = false);
     FeedResult feed(const void *data, size_t size, int64_t pts_ns, bool video);
     void tick();
     void eos();

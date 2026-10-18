@@ -109,6 +109,13 @@ bool Receiver::pop(Packet& p,uint64_t latest) {
     return true;
 }
 void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=video_packets=video_bytes=0;pin_text.clear();client.clear();video_timing.reset();ingress_to_queue.reset();ingress_copy.reset();queue_lock_wait.reset();queue_pop.reset();video_queue_residence.reset();audio_queue_residence.reset();last_video_arrival=0; }
+void Receiver::clear_audio_packets() {
+    std::lock_guard<std::mutex> l(mutex);
+    for(auto i=packets.begin();i!=packets.end();) {
+        if(!i->video) { bytes-=i->data.size(); i=packets.erase(i); }
+        else ++i;
+    }
+}
 static bool valid_key(const char *p) {
     if(!p || strlen(p)!=44) return false;
     return strspn(p,"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")==44;
@@ -137,7 +144,7 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     }
     char device_id[18];snprintf(device_id,sizeof(device_id),"%02X:%02X:%02X:%02X:%02X:%02X",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     int err=0;
-    dnssd=dnssd_init(UXPLAY_DISPLAY_NAME,strlen(UXPLAY_DISPLAY_NAME),reinterpret_cast<char *>(mac),6,1,&err);
+    dnssd=dnssd_init(UXAIR_DISPLAY_NAME,strlen(UXAIR_DISPLAY_NAME),reinterpret_cast<char *>(mac),6,1,&err);
     if(!dnssd || err) { show("AirPlay discovery failed");return false; }
     dnssd_set_airplay_features(dnssd,0,int(capabilities.direct_video));dnssd_set_airplay_features(dnssd,4,int(capabilities.hls));
     dnssd_set_airplay_features(dnssd,42,int(capabilities.hevc));dnssd_set_airplay_features(dnssd,27,int(capabilities.legacy_pairing));
@@ -153,13 +160,25 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     cb.video_reset=[](void *p,reset_type_t reason){fprintf(stderr,"[session] video reset reason=%d\n",int(reason));++self(p).session_resets;self(p).reset=true;};
     cb.video_pause=[](void *p){self(p).paused=true;};
     cb.video_resume=[](void *p){self(p).paused=false;};
-    cb.audio_flush=[](void *p){self(p).audio_flush=true;};
+    cb.audio_flush=[](void *p){Receiver& r=self(p);r.clear_audio_packets();r.audio_flush=true;};
     // UxPlay also calls video_flush for short-lived discovery HTTP connections.
     // The RTP lifecycle uses video_reset, so that is our session teardown boundary.
     cb.video_flush=[](void *){};
     cb.audio_set_client_volume=[](void *)->double{return 0.0;};
     cb.audio_set_volume=[](void *p,float db){self(p).volume=db<=-144?0:std::min(1.0f,std::pow(10.0f,db/20.0f));};
-    cb.audio_get_format=[](void *p,unsigned char *,unsigned short *,bool *,bool *,uint64_t *){self(p).has_audio=true;};
+    cb.audio_get_format=[](void *p,unsigned char *ct,unsigned short *spf,bool *using_screen,bool *is_media,uint64_t *format){
+        Receiver& r=self(p);
+        r.has_audio=true;
+        r.last_audio_codec=ct?*ct:0;
+        r.audio_samples_per_frame=spf?*spf:0;
+        r.audio_using_screen=using_screen&&*using_screen;
+        r.audio_is_media=is_media&&*is_media;
+        r.audio_format=format?*format:0;
+        fprintf(stderr,"[audio-negotiation] codec=%u samples_per_frame=%u using_screen=%d is_media=%d format=0x%llx standalone_candidate=%d\n",
+            ct?unsigned(*ct):0,spf?unsigned(*spf):0,int(r.audio_using_screen.load()),int(r.audio_is_media.load()),
+            (unsigned long long)r.audio_format.load(),int(standalone_audio_candidate(
+                AirPlayAudioIntent{ct?unsigned(*ct):0,spf?unsigned(*spf):0,r.audio_using_screen.load(),r.audio_is_media.load(),true},r.mirror.load())));
+    };
     cb.video_report_size=[](void *p,float *,float *,float *w,float *h){
         Receiver& r=self(p);
         const int bound=r.active_profile.width;
@@ -227,7 +246,7 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     if(raop_start_httpd(raop,&port)<0)return false;
     raop_set_port(raop,port);
     if(dnssd_register_raop(dnssd,port)||dnssd_register_airplay(dnssd,port))return false;
-    fprintf(stderr,"[receiver] UxPlay webOS ready port=%u, paired=%zu\n",port,keys.size());
+    fprintf(stderr,"[receiver] UxAir ready port=%u, paired=%zu\n",port,keys.size());
     return true;
 }
 void Receiver::adjust_audio_delay(int delta) {
@@ -244,6 +263,7 @@ void Receiver::adjust_audio_delay(int delta) {
 void Receiver::disconnect() {
     if(raop) raop_remove_known_connections(raop);
     clear(); has_audio=false;mirror=false;paused=false;reset=false;audio_flush=false;last_audio_arrival=0;incoming_video_codec=0;
+    audio_using_screen=false;audio_is_media=false;audio_samples_per_frame=audio_format=0;
     show("Waiting for a connection");
 }
 void Receiver::stop() {

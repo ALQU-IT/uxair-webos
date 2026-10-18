@@ -23,7 +23,7 @@
 
 // An isolated experiment: no receiver, discovery, sockets, pairing or persistent settings.
 namespace {
-const char kAppId[] = "com.github.danlflh.uxplaywebos.hevcprobe";
+const char kAppId[] = "com.github.depius.uxair.hevcprobe";
 volatile sig_atomic_t stop_requested = 0;
 volatile sig_atomic_t stop_signal_number = 0;
 volatile sig_atomic_t stop_sender_pid = 0;

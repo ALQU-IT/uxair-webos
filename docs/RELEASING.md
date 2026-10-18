@@ -1,22 +1,20 @@
-# Releasing UxPlay webOS
+# UxAir release preparation
 
-## Before tagging
+## Release candidate checks
 
-1. Start from a clean checkout on `main`; confirm no generated files are tracked.
-2. Set the release version only in `packaging/appinfo.json`. The Git tag must be `v<version>` and the GitHub release title must be `UxPlay webOS v<version>`.
-3. Update `CHANGELOG.md`. During `0.x`, use patch versions for fixes and minor versions for new capabilities. Reserve `1.0.0` for broader stability and compatibility.
-4. Run `python3 tools/validate-metadata.py` and `tools/test.sh`.
-5. Build from the clean checkout with `tools/build.sh`, then create corresponding source with `tools/source-package.py`.
-6. Verify the staged ELF with `tools/verify-elf.py build/app`: ARM32 ABI, GLIBC <= 2.19, and the app-local `libstdc++.so.6` must resolve the required C++ symbols.
-7. Inspect both archives for SSH keys, logs, personal IP addresses, and pairing data. Confirm the output names are `com.github.danlflh.uxplaywebos_<version>_arm.ipk` and `uxplay-webos-<version>-source.tar.gz`.
-8. On the validated TV, install the new identity after removing any old development-ID build. Confirm English UI, discovery, PIN, video, audio, rotation, disconnect/reconnect, and relaunch. Record limitations that remain.
+1. Start from the reviewed UxAir release-preparation branch and record the source commit. Do not rewrite or rename the existing UxPlay repository as part of this process.
+2. Keep version `1.0.0` in `packaging/appinfo.json` for the RC. The package identity is `com.github.depius.uxair`; the former UxPlay development app has a different ID and is kept installed as the rollback option.
+3. Run `python3 tools/validate-metadata.py`, `tools/test.sh`, `tools/build.sh`, `python3 tools/verify-elf.py build/app`, `python3 tools/validate-ipk.py`, and `tools/source-package.py`.
+4. Inspect the IPK and source archive for private keys, logs, sender data, pairing/settings files, and local paths. Confirm the IPK is `com.github.depius.uxair_1.0.0_arm.ipk` and the source archive is `uxair-webos-1.0.0-source.tar.gz`.
+5. The Actions RC workflow runs the host tests, builds the ARMv7 IPK, validates the staged ELF and IPK, generates the corresponding-source archive and SHA-256 checksums, then uploads them as a candidate artifact.
+6. Validate on a rooted LG OLED B7 running webOS 3.9. The outstanding acceptance item is standalone AirPlay audio. Also recheck H.264 720p/60 and 1080p/60, HEVC 4K/60, 30 FPS modes, rotation, mirroring audio, Magic Remote navigation, pairing, settings, and reconnect/recovery.
 
-## Publish
+## Identity and user data
 
-1. Create a clean initial/release commit and an annotated `v<version>` tag only after all checks pass.
-2. Push `main` and the tag to `github.com/danlflh/uxplay-webos`.
-3. Create a normal GitHub release titled `UxPlay webOS v<version>` (not a pre-release), clearly describing it as experimental.
-4. Attach the IPK, source archive, and a `SHA256SUMS` file generated from those two artifacts.
-5. Use the matching changelog section as release notes and include validated hardware/firmware plus known limitations.
+UxAir uses the new app ID `com.github.depius.uxair`. Installing it does not overwrite or uninstall the UxPlay development app (`com.github.danlflh.uxplaywebos.dev`). App-private pairing keys, receiver identity, and settings are distinct; the user pairs and configures UxAir separately. No data is migrated or deleted automatically. Keep the old app until the candidate is accepted.
 
-This project does not create a webOS Brew catalog manifest or submission in this release process.
+## Final publication
+
+Do not create a final release tag, rename the GitHub repository, change GitHub repository settings, or publish a GitHub Release until the owner has reviewed the artifact and explicitly approved final publication. The RC branch is not the public release branch. Final release notes must retain the audio validation status and the limitations about HDR/Main10, displayed FPS, native 4K output, and unverified TV models. Attach the IPK, corresponding-source archive, and `SHA256SUMS` only after that approval.
+
+This repository does not create a webOS Brew catalog manifest or submission.

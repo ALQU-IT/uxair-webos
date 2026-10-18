@@ -1,10 +1,10 @@
 {
-  "id": "com.github.danlflh.uxplaywebos.hevcprobe",
+  "id": "com.github.depius.uxair.hevcprobe",
   "version": "0.1.3",
-  "vendor": "UxPlay webOS",
+  "vendor": "UxAir",
   "type": "native",
   "main": "hevc-probe",
-  "title": "HEVC Hardware Probe",
+  "title": "UxAir HEVC Hardware Probe",
   "icon": "icon.png",
   "requiredMemory": 64
 }

@@ -1,100 +1,88 @@
-# UxPlay webOS
+<p align="center"><img src="assets/uxair-icon-256.png" width="128" alt="UxAir receiver icon"></p>
 
-An experimental native AirPlay mirroring receiver for rooted LG webOS TVs. Open **UxPlay webOS** from the TV launcher, select it from Screen Mirroring on an iPhone, iPad, or Mac, then enter the on-screen PIN on first connection. No separate receiver computer is needed.
+<h1 align="center">UxAir</h1>
+<p align="center"><strong>AirPlay Receiver for webOS</strong></p>
 
-## Status and validated hardware
+UxAir is a native AirPlay mirroring receiver for compatible rooted LG webOS TVs, based on the open-source UxPlay project. It is an independent community project and is not affiliated with or endorsed by Apple or LG. UxAir is compatible with AirPlay; AirPlay is an Apple trademark.
 
-This is an experimental `0.1.0` release. It has been validated on an LG **32LJ600B-SA**, firmware **06.10.60**, Rockhopper **3.9.3**, with an ARMv7 Cortex-A9 target. On an LG OLED B7 / Rockhopper 3.9.0, H.264 1080p/30 and experimental HEVC 4K/30 AirPlay mirroring, Photos/video through mirroring, stereo audio, and HEVC `LOADCOMPLETED`/`PLAYING` callbacks have been confirmed. The default mirroring profile remains 1280×720 / 30 fps. HEVC is opt-in; native 4K output resolution and HDR10/Main10 remain unverified and disabled. See [the validation record](docs/VALIDATION.md), [B7 pacing record](docs/MILESTONE2.md), and [capability assessment](docs/CAPABILITIES.md).
+## Status
 
-## Requirements
+Version 1.0.0 is prepared as a release candidate. The verified physical target is the LG OLED B7 (2017) running webOS 3.9. Testing on other models or firmware is not implied. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
 
-- A rooted compatible LG webOS TV with the webOS Brew development environment.
-- The TV and sender on the same LAN with multicast/mDNS available.
-- For the current ARMv7 package build: Apple Silicon macOS, Xcode command-line tools, Git, CMake, Ninja, and the webOS TV CLI (`ares-package`, `ares-install`, `ares-launch`). The checked-in target SDK pin selects macOS ARM64; pinned FFmpeg source is cross-compiled by the build.
-- For native tests on Ubuntu or WSL2 Ubuntu: a C++11 compiler, FFmpeg, pkg-config, and FFmpeg development packages. See [development environments](docs/DEVELOPMENT.md).
+## Features
+
+- H.264 AirPlay mirroring up to 1080p/60.
+- HEVC/H.265 mirroring up to 4K/60.
+- 30 and 60 FPS profiles, including the confirmed 30 FPS modes.
+- Portrait and landscape adaptation.
+- Starfish hardware-accelerated video playback with stereo audio during mirroring.
+- Configurable codec, resolution, frame rate, audio delay, and diagnostics.
+- Magic Remote pointer, arrow, OK, and Back navigation.
+- Local PIN pairing, saved configuration, session history, and automatic decoder recovery/fallback.
+- Lightweight diagnostics separating advertised rate, incoming rate, accepted Feed rate, and decoder callbacks. Decoder callback rate does not claim displayed FPS.
+
+An audio-only RAOP path for negotiated AAC, AAC-ELD, ALAC, and PCM is implemented but awaits physical B7 validation; it is not listed as a verified feature.
+
+The iPhone, iPad, or Mac selects the actual AirPlay codec and rate. Selecting HEVC advertises HEVC alongside H.264; it cannot force a sender that chooses H.264. Direct Photos playback is distinct from Photos or video shown by mirroring. Direct Photos/video, HLS, AirPlay 2, HDR/Main10, and native 4K scanout are not supported or verified.
+
+## Hardware and requirements
+
+- A compatible rooted LG webOS TV with native application development enabled.
+- A TV and sender on the same local network with multicast/mDNS discovery available.
+- Physical playback has been verified on the LG OLED B7 with webOS 3.9. Other TV models remain unverified.
+- The ARMv7 build uses the pinned webOS Brew toolchain. CI performs host tests and builds/validates the ARMv7 IPK.
 
 ## Install and use
 
-Build the package locally, then configure a neutral device name with `ares-setup-device`:
+Download the `com.github.depius.uxair_1.0.0_arm.ipk` candidate from the GitHub Actions artifact, then install it on a compatible rooted TV with the webOS CLI:
 
 ```sh
-tools/build.sh
-TV_DEVICE=your-tv tools/tv.sh install
-TV_DEVICE=your-tv tools/tv.sh launch
+ares-install -d YOUR_TV com.github.depius.uxair_1.0.0_arm.ipk
+ares-launch -d YOUR_TV com.github.depius.uxair
 ```
 
-The package is `dist/com.github.danlflh.uxplaywebos_0.1.0_arm.ipk`. Changing from the former development ID requires manually removing that old build; pairing data belongs to the app ID, so it starts over after the identity change.
+Open UxAir, select it from Screen Mirroring on the sender, and enter the on-screen PIN when prompted. For music, select UxAir as the sender's AirPlay audio output. Pairing, receiver identity, and settings are private to the app ID.
 
-On the TV, open **UxPlay webOS**. Start Screen Mirroring from an iPhone, iPad, or Mac and select **UxPlay webOS**. Enter the PIN when prompted. On macOS, select **UxPlay webOS** as the audio output if it is not selected automatically.
+### Migrating from UxPlay webOS development builds
 
-- In the development build, Left/Right changes between **Video**, **Audio**, **Diagnostics** and **About**; Up/Down focuses a row, OK opens a choice dialog, and Back cancels it. Set audio delay from **Audio** before connecting; positive values play audio later. Settings are saved locally.
-- During playback, OK opens the diagnostics page; Back hides it, then Back again disconnects. Back from the idle Screen Mirroring section, or Exit, closes the app.
-- One transmitting device is accepted at a time.
-- The development app has four focused settings sections, local session history and diagnostics. See [Milestone 7](docs/MILESTONE7.md). Direct media remains unavailable; HEVC mirroring is experimental and native 4K output and HDR are unverified.
-- The development package includes a bounded, metadata-only [direct-media request probe](docs/MILESTONE4C.md). Its [temporary `/info` handshake experiment](docs/MILESTONE4D.md) answers only a bodyless HTTP `GET /info`; it does not enable direct playback or change advertised capabilities.
-- The [Milestone 4E transport and native-resolution audit](docs/MILESTONE4E.md) records why a direct 4K photo prototype remains blocked pending a real payload trace, a safe authorization boundary and a verified B7 output surface.
-- The [Milestone 5A HEVC mirroring audit](docs/MILESTONE5.md) records the pinned transport path. HEVC is an opt-in development setting; see [Milestone 6](docs/MILESTONE6.md) and [Milestone 7](docs/MILESTONE7.md).
-- The [Milestone 5B read-only firmware discovery procedure](docs/MILESTONE5B.md) identifies the evidence needed before any standalone HEVC hardware probe is built.
+UxAir uses the new ID `com.github.depius.uxair`. It installs alongside the existing UxPlay webOS development app and does not overwrite or uninstall it. The new ID has separate pairing keys, receiver identity, and settings; you will pair again and configure UxAir separately. Keep the old development app installed until the UxAir candidate has passed your hardware checks. No state is migrated or removed automatically.
 
-For direct SSH helpers, explicitly set the connection details—no personal network, TV alias, or key path is embedded:
+## Remote and configuration
 
-```sh
-export TV_DEVICE=your-tv
-export TV_HOST=tv.example.lan
-export TV_KEY=/absolute/path/to/private-key
-tools/tv.sh logs
-tools/tv.sh loader-check
-```
+- Left/Right changes the Video, Audio, Diagnostics, and About sections.
+- Up/Down focuses rows; OK opens or confirms a choice; Back cancels a dialog, returns from playback to the UI, or exits from the idle screen.
+- During playback, OK opens diagnostics and Back returns to video.
+- Set audio delay before connecting; positive values delay the TV audio.
+- Choose 30 or 60 FPS as the advertised maximum. The sender may use a lower rate.
+- HEVC capability does not force the sender's codec selection.
 
-`tools/tv.sh update-binary` replaces only the executable and intentionally preserves current pairing data. Use a full install whenever packaged libraries change.
+## Build from source
 
-## Reproducible build and tests
-
-`packaging/appinfo.json` is the single version source. `tools/build.sh` downloads checksum-pinned inputs, builds private dependencies, cross-compiles the receiver, verifies the ELF ABI, and packages the IPK. The generated dependencies, build tree, logs, pairing state, and `dist/` artifacts are excluded from Git.
+`packaging/appinfo.json` holds the app identity and version. Inputs and their checksums are pinned in `dependencies.lock.json`. Follow [the development environment guide](docs/DEVELOPMENT.md) and use a supported macOS ARM64 host with the webOS CLI for the target build.
 
 ```sh
-tools/test.sh              # H.264, malformed input, PCM/AAC and ASan/UBSan
-tools/test.sh --diagnostics-only # standalone diagnostics timing test
-tools/probe.sh             # package a 15-second native playback probe
-tools/source-package.py    # corresponding source archive
 python3 tools/validate-metadata.py
+tools/test.sh
+tools/build.sh
+python3 tools/validate-ipk.py
+tools/source-package.py
 ```
 
-The corresponding source archive is `dist/uxplay-webos-0.1.0-source.tar.gz`; it includes this source tree, pinned UxPlay source, original dependency archives, and build instructions. Native test CI runs on Ubuntu 24.04. The separate Apple Silicon workflow builds an isolated development IPK; see [download, installation, and rollback instructions](docs/DEVELOPMENT-IPK.md) and [development environment findings](docs/DEVELOPMENT.md).
+The build verifies ARM32 soft-float ABI and GLIBC compatibility. The source archive contains this application source, the pinned UxPlay source, dependency archives, notices, and build instructions. CI validation does not replace physical TV testing.
 
-## Architecture
+## Known limitations and troubleshooting
 
-`src/receiver.cpp` integrates the pinned UxPlay core and handles discovery, PIN pairing, and bounded packet queues. `src/main.cpp` owns session lifecycle and timing. `src/media.cpp` feeds the TV hardware decoder through Starfish Media Pipeline and ACB, while FFmpeg decodes AAC-ELD, AAC-LC, ALAC, and PCM to stereo PCM. SDL owns the window and remote input while the hardware video plane remains visible.
+- Audio-only playback has not yet been confirmed on the B7. Protected media and unsupported AirPlay protocols are not decrypted or altered.
+- An AirPlay sender may select a different codec or frame rate than the requested maximum.
+- Incoming/Feed rates and Starfish `FRAMEREADY` callbacks are not proof of displayed FPS. Native panel output resolution is unmeasured.
+- HDR10/Main10, direct Photos/video, AirPlay 2, startup at boot, broad TV compatibility, and macOS extended-display use are not supported or certified.
+- Starfish buffering on webOS 3.9 can add latency.
+- If the receiver does not appear, check same-network connectivity and multicast/mDNS. If a codec fails, reconnect and choose a supported profile. Review `uxair.log`; logs can contain sender names and local network details.
 
-Queues are capped at 4 MiB/512 packets in the default 720p profile and 8 MiB/512 packets in the B7-tested 1080p profile. Decoder stalls, timestamp discontinuities, and queue overflow end the current session rather than allowing uncontrolled memory growth.
+## Acknowledgements and license
 
-Every five seconds, `uxplay.log` records lightweight diagnostics while a session is active: incoming H.264 access-unit FPS, FPS and interval spread derived from remote presentation timestamps, accepted Starfish feed rate, decoder callback rate, feed retries and call latency, queue occupancy/high-water marks and drops, audio decode time/errors, process RSS, and session/reset counts. The incoming rate is measured at packet ingress. `FRAMEREADY` is a throttled firmware callback, so its reported rate is an activity signal rather than a precise hardware FPS measurement. Queue limits and playback behavior are unchanged by diagnostics.
+UxAir development and adaptation: Matej Skuhala / [@depius](https://github.com/depius). The AirPlay receiver core is [UxPlay by FDH2](https://github.com/FDH2/UxPlay); the original webOS port is by Daniel Filho / [@danlflh](https://github.com/danlflh). This project is an adaptation and is not written from scratch. Additional dependencies and license details are listed in [THIRD_PARTY.md](THIRD_PARTY.md). The project is licensed under [GPL-3.0-or-later](LICENSE); corresponding sources and build instructions are provided for releases.
 
-## Privacy, security, and logs
+## Support development
 
-Pairing data, receiver identity, and the selected audio delay are stored only in the app's private `state/` directory. Up to 64 paired client keys are retained. Reinstalling or removing app data resets that state. The receiver has no cloud service, analytics, or outbound account connection.
-
-Diagnostics are written to `uxplay.log`, rotated around 1 MiB with one previous file. Exporting logs does not copy pairing files. Do not publish logs without review: sender names and local network details may appear in them. The package contains no SSH keys, logs, or pairing data.
-
-## Supported features and limitations
-
-Supported: AirPlay discovery, PIN pairing, H.264 mirroring, stereo audio with mirroring, iPad rotation, reconnecting, and adjustable audio delay. Experimental HEVC 4K/30 mirroring has been verified on the LG OLED B7.
-
-Not supported or not certified: standalone audio-only playback, direct photo/video and HLS playback, full AirPlay 2, native 4K output resolution, HDR10/Main10 playback, recording, startup at boot, broad TV/firmware compatibility, Mac extended display, and low-latency gaming. Starfish buffering on this older platform can add visible latency.
-
-## Troubleshooting
-
-- **The receiver does not appear:** confirm both devices use the same LAN and that multicast/mDNS is not blocked.
-- **No sound on a Mac:** choose **UxPlay webOS** in macOS audio output, reconnect, then adjust audio delay if needed.
-- **Old app still appears or pairing changed:** remove the old development-ID installation manually; this release intentionally uses a new app ID.
-- **Package or loader failure:** run `tools/tv.sh loader-check` with `TV_HOST` and `TV_KEY` set, and inspect `tools/tv.sh logs`.
-
-## Roadmap and contributing
-
-Before a stable release, the project needs longer soak tests, quantified latency, more TV/firmware coverage, Mac audio and extended-display validation, and repeated reconnect/network-recovery testing. Contributions are welcome as focused issues and pull requests with reproducible evidence. Please run `tools/test.sh` and `python3 tools/validate-metadata.py` before opening a pull request.
-
-## Credits and license
-
-UxPlay webOS is maintained by Daniel Filho ([@danlflh](https://github.com/danlflh)). It builds on FDH2/UxPlay, llhttp, OpenSSL, libplist, FFmpeg, the GCC Runtime, the webOS Brew native toolchain and samples, and technical reference from mariotaku/ss4s. SDL2, SDL2_ttf, Starfish Media Pipeline, and ACB are supplied by the TV. Full notices are in [THIRD_PARTY.md](THIRD_PARTY.md).
-
-Licensed under [GPL-3.0-or-later](LICENSE). This is an independent project and is not affiliated with, endorsed by, or supported by Apple or LG.
+UxAir is free and open source. Donations are optional and do not unlock features or affect the license. The Buy Me a Coffee creator account has not been configured, so there is no donation link yet. No payments, telemetry, or account connection are required.

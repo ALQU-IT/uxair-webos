@@ -1,12 +1,12 @@
 #include "media.h"
 #include "media_rate.h"
+#include "media_payload.h"
 #include "settings.h"
 #include <StarfishMediaAPIs.h>
 #include <AcbAPI.h>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
-#include <sstream>
 #include <time.h>
 
 // This firmware exports a three-argument wrapper; the NDK declaration omits taskId.
@@ -61,17 +61,20 @@ void Media::event(int type, int64_t value, const char *message, void *user) {
     }
 }
 bool Media::open(const char *app_id, int width, int height, bool audio, int rate,
-                 int video_source_buffer_bytes, int canvas_width, int canvas_height, MirrorCodec codec, int max_fps) {
+                 int video_source_buffer_bytes, int canvas_width, int canvas_height, MirrorCodec codec, int max_fps, bool audio_only) {
     MediaRateFields frame_rate;
-    if (width<=0 || height<=0 || video_source_buffer_bytes<1048576 || video_source_buffer_bytes>2097152 ||
+    if ((!audio_only && (width<=0 || height<=0 || video_source_buffer_bytes<1048576 || video_source_buffer_bytes>2097152)) ||
         !media_rate_fields(max_fps,frame_rate) ||
-        (codec==MirrorCodec::H264 && int64_t(width)*height>1920*1080) ||
-        (codec==MirrorCodec::ExperimentalHevc && int64_t(width)*height>3840*2160))
+        (!audio_only && codec==MirrorCodec::H264 && int64_t(width)*height>1920*1080) ||
+        (!audio_only && codec==MirrorCodec::ExperimentalHevc && int64_t(width)*height>3840*2160))
         return false;
-    if (!canvas_width) canvas_width=width;
-    if (!canvas_height) canvas_height=height;
-    const VideoWindow window=fit_video_window(width,height,canvas_width,canvas_height);
-    if (!window.width || !window.height) return false;
+    VideoWindow window={};
+    if(!audio_only) {
+        if (!canvas_width) canvas_width=width;
+        if (!canvas_height) canvas_height=height;
+        window=fit_video_window(width,height,canvas_width,canvas_height);
+        if (!window.width || !window.height) return false;
+    }
     close();
     ready = playing = ended = failed = false;
     frames = 0;
@@ -104,27 +107,19 @@ bool Media::open(const char *app_id, int width, int height, bool audio, int rate
         fprintf(stderr, "[media] ACB media registration failed\n"); close(); return false;
     }
     fprintf(stderr,"[media-init] ACB media ID end ms=%.2f\n",(monotonic_ns()-phase)/1e6);
-    std::ostringstream p;
-    p << "{\"args\":[{\"mediaTransportType\":\"BUFFERSTREAM\",\"option\":{\"appId\":\"" << app_id
-      << "\",\"queryPosition\":false,\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\""
-      << (codec==MirrorCodec::ExperimentalHevc?"H265":"H264") << "\"";
-    if (audio) p << ",\"audio\":\"PCM\"";
-    p << "},\"esInfo\":{\"pauseAtDecodeTime\":true,\"ptsToDecode\":0,\"seperatedPTS\":true,\"videoFpsValue\":" << frame_rate.video_fps_value << ",\"videoFpsScale\":" << frame_rate.video_fps_scale << "},\"format\":\"RAW\",\"provider\":\"Chrome\"";
-    if (audio) p << ",\"pcmInfo\":{\"channelMode\":\"stereo\",\"format\":\"S16LE\",\"sampleRate\":" << rate / 1000.0
-                 << ",\"bitsPerSample\":16,\"layout\":\"interleaved\"}";
-    p << "},\"restartStreaming\":false,\"streamQualityInfo\":true,\"streamQualityInfoNonFlushable\":true,\"totalStreamSize\":256,"
-         "\"bufferingCtrInfo\":{\"preBufferByte\":0,\"bufferMinLevel\":0,\"bufferMaxLevel\":0,\"qBufferLevelAudio\":0,\"qBufferLevelVideo\":0,"
-         "\"srcBufferLevelAudio\":{\"minimum\":1024,\"maximum\":131072},\"srcBufferLevelVideo\":{\"minimum\":1024,\"maximum\":" << video_source_buffer_bytes << "}}},"
-         "\"adaptiveStreaming\":{\"audioOnly\":false,\"maxWidth\":" << width << ",\"maxHeight\":" << height << ",\"maxFrameRate\":" << frame_rate.max_frame_rate << "}}}]}";
-    fprintf(stderr, "[media] Load max_fps=%d %s\n", max_fps, p.str().c_str());
+    const std::string payload=starfish_load_payload(app_id,codec==MirrorCodec::ExperimentalHevc?"H265":"H264",
+        width,height,audio,rate,video_source_buffer_bytes,frame_rate,audio_only);
+    fprintf(stderr, "[media] Load mode=%s max_fps=%d %s\n", audio_only?"audio-only":"mirroring",max_fps,payload.c_str());
     phase=monotonic_ns();
-    loaded_ = api_->Load(p.str().c_str(), event, this);
+    loaded_ = api_->Load(payload.c_str(), event, this);
     fprintf(stderr,"[media-init] Starfish Load end ms=%.2f success=%d\n",(monotonic_ns()-phase)/1e6,int(loaded_));
     if (!loaded_) { close(); return false; }
     phase=monotonic_ns();
-    AcbAPI_setDisplayWindow(acb_, window.x, window.y, window.width, window.height, true, &task_);
-    fprintf(stderr,"[media-init] ACB display window=%d,%d %dx%d source=%dx%d end ms=%.2f\n",
-            window.x,window.y,window.width,window.height,width,height,(monotonic_ns()-phase)/1e6);
+    if(!audio_only) {
+        AcbAPI_setDisplayWindow(acb_, window.x, window.y, window.width, window.height, true, &task_);
+        fprintf(stderr,"[media-init] ACB display window=%d,%d %dx%d source=%dx%d end ms=%.2f\n",
+                window.x,window.y,window.width,window.height,width,height,(monotonic_ns()-phase)/1e6);
+    } else fprintf(stderr,"[media-init] audio-only session has no ACB video window\n");
     return true;
 }
 void Media::tick() {

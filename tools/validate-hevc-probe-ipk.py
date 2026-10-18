@@ -17,7 +17,7 @@ def require(test, message):
 
 def main():
     app = json.loads((ROOT / 'packaging/hevc-probe-appinfo.json').read_text())
-    require(app['id'] == 'com.github.danlflh.uxplaywebos.hevcprobe' and
+    require(app['id'] == 'com.github.depius.uxair.hevcprobe' and
             app['main'] == 'hevc-probe', 'unexpected app identity')
     stage = ROOT / 'build/hevc-app'
     require(json.loads((stage / 'appinfo.json').read_text()) == app, 'staged identity')
@@ -42,7 +42,7 @@ def main():
             require(16 < len(sample) <= 12*1024*1024, 'sample size')
             require(hashlib.sha256(sample).digest() == hashlib.sha256((stage/name).read_bytes()).digest(),
                     'sample mismatch')
-        forbidden={'uxplay-webos','paired.keys','server.key','device.id','uxplay.log','hevc-probe.log'}
+        forbidden={'uxplay-webos','paired.keys','server.key','device.id','uxplay.log','uxair.log','hevc-probe.log'}
         require(not any(pathlib.PurePosixPath(name).name in forbidden or
                         'state' in pathlib.PurePosixPath(name).parts for name in files),
                 'receiver or private state included')

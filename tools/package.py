@@ -30,7 +30,7 @@ def main():
     source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     (stage / 'build-info.txt').write_text(f'version={app["version"]}\ncommit={source_commit}\n')
     shutil.copy2(ROOT / 'packaging/icon.png', stage / 'icon.png')
-    shutil.copy2(ROOT / 'build/uxplay-webos', stage / 'uxplay-webos')
+    shutil.copy2(ROOT / 'build/uxair', stage / 'uxair')
     shutil.copy2(SDK / 'arm-webos-linux-gnueabi/sysroot/usr/lib/libstdc++.so.6', stage / 'lib/libstdc++.so.6')
     for source, dest in [
         ('LICENSE', 'GPL-3.0.txt'),
@@ -44,7 +44,7 @@ def main():
         shutil.copy2(ROOT / source, stage / 'licenses' / dest)
     shutil.copy2(ROOT / 'dependencies.lock.json', stage / 'dependencies.lock.json')
     strip = SDK / 'bin/arm-webos-linux-gnueabi-strip'
-    subprocess.run([str(strip), str(stage / 'uxplay-webos')], check=True)
+    subprocess.run([str(strip), str(stage / 'uxair')], check=True)
     subprocess.run(['python3', str(ROOT / 'tools/verify-elf.py'), str(stage)], check=True)
     (ROOT / 'dist').mkdir(exist_ok=True)
     subprocess.run(['ares-package', str(stage), '-o', str(ROOT / 'dist')], check=True)

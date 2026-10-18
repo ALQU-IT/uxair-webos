@@ -8,6 +8,7 @@
 #include "raop.h"
 #include "diagnostics.h"
 #include "settings.h"
+#include "audio_session.h"
 struct Packet {
     bool video;
     unsigned codec;
@@ -32,6 +33,7 @@ struct Receiver {
     bool pop(Packet& packet, uint64_t latest = UINT64_MAX);
     void enqueue(bool video, unsigned codec, uint64_t time, const uint8_t *data, int size);
     void clear();
+    void clear_audio_packets();
     ReceiverDiagnostics diagnostics();
     ReceiverDiagnostics queue_snapshot();
     VideoTimingSample take_video_timing();
@@ -42,6 +44,8 @@ struct Receiver {
     void adjust_audio_delay(int delta_ms);
     std::atomic<int> audio_delay_ms{100};
     std::atomic<bool> reset{false}, audio_flush{false}, paused{false}, has_audio{false}, mirror{false};
+    std::atomic<bool> audio_using_screen{false}, audio_is_media{false};
+    std::atomic<unsigned> audio_samples_per_frame{0}, audio_format{0};
     std::atomic<int> width{1280},height{720};
     std::atomic<float> volume{1};
     std::atomic<int64_t> activity{0};

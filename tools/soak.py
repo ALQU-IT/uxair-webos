@@ -26,8 +26,8 @@ def main():
     key=os.path.expanduser(key)
     app=json.loads((ROOT/'packaging/appinfo.json').read_text())
     app_dir=f'/media/developer/apps/usr/palm/applications/{app["id"]}'
-    log_path=f'/var/palm/jail/{app["id"]}{app_dir}/uxplay.log'
-    command=f"p=$(pidof uxplay-webos); if [ -n \"$p\" ]; then cat /proc/$p/status; fi; grep '\\[stats\\]' {log_path} | tail -n 1"
+    log_path=f'/var/palm/jail/{app["id"]}{app_dir}/uxair.log'
+    command=f"p=$(pidof uxair); if [ -n \"$p\" ]; then cat /proc/$p/status; fi; grep '\\[health\\]' {log_path} | tail -n 1"
     start=time.monotonic();deadline=start+args.seconds
     with out.open('w') as f:
         while True:

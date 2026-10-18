@@ -47,7 +47,7 @@ bool Shell::open() {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "[SDL] %s\n",SDL_GetError()); return false; }
     SDL_DisplayMode mode;
     if (SDL_GetCurrentDisplayMode(0,&mode) != 0) return false;
-    window = SDL_CreateWindow(UXPLAY_DISPLAY_NAME,0,0,mode.w,mode.h,SDL_WINDOW_FULLSCREEN);
+    window = SDL_CreateWindow(UXAIR_DISPLAY_NAME,0,0,mode.w,mode.h,SDL_WINDOW_FULLSCREEN);
     if (window) renderer = SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED);
     if (!renderer) { fprintf(stderr,"[SDL] %s\n",SDL_GetError()); return false; }
     fprintf(stderr,"[SDL] graphics-window=%dx%d (logical app coordinates)\n",mode.w,mode.h);
@@ -151,8 +151,8 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
     const char *titles[]={"Video","Audio","Diagnostics","About","Recent Sessions"};
     int index=int(page_id);if(index<0||index>4)index=0;
     int category=index==4?2:index;
-    text_at("UXPLAY",w/28,h/18,sidebar-40,large_,{77,226,185,255});
-    text_at("webOS Dev",w/28,h/8,sidebar-40,small_,{154,185,202,255});
+    text_at("UXAIR",w/28,h/18,sidebar-40,large_,{77,226,185,255});
+    text_at("AirPlay Receiver",w/28,h/8,sidebar-40,small_,{154,185,202,255});
     text_at(titles[index],panel,h/20,w-panel-35,large_,{239,247,249,255});
     text_at(subtitle,panel,h/7,w-panel-35,font_,{154,185,202,255});
     const int top=h/4;
@@ -221,10 +221,10 @@ void Shell::overlay(const std::vector<std::string>& lines) {
 void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     SDL_SetRenderDrawColor(renderer,14,25,36,255);SDL_RenderClear(renderer);
     int w,h;SDL_GetRendererOutputSize(renderer,&w,&h);
-    text(UXPLAY_DISPLAY_NAME,h/6,large_,{65,210,171,255});
+    text(UXAIR_DISPLAY_NAME,h/6,large_,{65,210,171,255});
     text(status,h/2-60,font_,{238,242,246,255});
     if(!pin.empty()) text(pin,h/2+10,large_,{255,255,255,255});
-    else text(std::string("Open Screen Mirroring and select ")+UXPLAY_DISPLAY_NAME,h/2+20,font_,{178,194,207,255});
+    else text(std::string("Open Screen Mirroring and select ")+UXAIR_DISPLAY_NAME,h/2+20,font_,{178,194,207,255});
     char sync[160];snprintf(sync,sizeof(sync),"◀ ▶  Audio delay: %+d ms  ·  Adjust before connecting",delay);
     text(sync,h-135,font_,{145,167,185,255});
     text("Same Wi-Fi network  ·  Quality in Settings  ·  Back to exit",h-80,font_,{145,167,185,255});

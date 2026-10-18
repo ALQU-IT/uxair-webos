@@ -21,7 +21,7 @@ struct MirrorLimits {
 struct VideoWindow { int x, y, width, height; };
 enum class ProfileSwitchResult { Unchanged, Applied, Recovered, Unavailable };
 
-// 60 FPS is an advertised experimental maximum; sender and decoder may choose less.
+// The sender chooses its actual frame rate up to the advertised maximum.
 bool supported_mirror_resolution(int width, int height);
 bool supported_mirror_fps(int fps);
 bool set_mirror_resolution(Settings& settings, int width, int height);

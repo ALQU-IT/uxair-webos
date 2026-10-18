@@ -171,10 +171,17 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     };
     cb.video_set_codec=[](void *p,video_codec_t c)->int{
         Receiver& r=self(p);
-        bool accepted=c==VIDEO_CODEC_H264 ||
-            (c==VIDEO_CODEC_H265 && r.active_profile.codec==MirrorCodec::ExperimentalHevc);
-        fprintf(stderr,"[codec] negotiated=%s accepted=%d\n",
-                c==VIDEO_CODEC_H264?"H264":c==VIDEO_CODEC_H265?"HEVC":"unsupported",int(accepted));
+        const SenderVideoCodec sender_codec=c==VIDEO_CODEC_H264?SenderVideoCodec::H264:
+            c==VIDEO_CODEC_H265?SenderVideoCodec::Hevc:SenderVideoCodec::Unsupported;
+        const CodecNegotiationResult result=codec_negotiation_result(r.active_profile,sender_codec);
+        const bool accepted=result!=CodecNegotiationResult::Reject;
+        const char *mode=r.active_profile.codec==MirrorCodec::ExperimentalHevc?"HEVC-capable":"H264-only";
+        const char *selected=c==VIDEO_CODEC_H264?"H264":c==VIDEO_CODEC_H265?"HEVC":"unsupported";
+        const char *outcome=result==CodecNegotiationResult::AcceptH264Fallback?"accepted-sender-fallback":
+            accepted?"accepted":"rejected";
+        fprintf(stderr,"[codec] mode=%s advertised-bit42=%d sender-selected=%s negotiation=%s limit=%dx%d\n",
+                mode,int(r.active_profile.codec==MirrorCodec::ExperimentalHevc),selected,outcome,
+                r.active_profile.width,r.active_profile.height);
         if(accepted) r.incoming_video_codec=c==VIDEO_CODEC_H265?2:1;
         return accepted?0:-1;
     };
@@ -209,9 +216,10 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
        raop_set_plist(raop,"refreshRate",capabilities.max_fps) ||
        raop_set_plist(raop,"maxFPS",capabilities.max_fps) ||
        raop_set_plist(raop,"pin",0)) return false;
-    fprintf(stderr,"[receiver] advertised mirror=%dx%d/%d codecs=%s max video packet=%zu queue=%zu\n",
+    fprintf(stderr,"[receiver] selected-codec-mode=%s advertised-bit42=%d mirror-limit=%dx%d/%d sender-selects-actual-codec=1 max-video-packet=%zu queue=%zu\n",
+            capabilities.hevc?"HEVC-capable":"H264-only",int(capabilities.hevc),
             capabilities.width,capabilities.height,capabilities.max_fps,
-            capabilities.hevc?"H264+experimental-HEVC":"H264",max_video_packet_bytes,max_queue_bytes);
+            max_video_packet_bytes,max_queue_bytes);
     raop_set_dnssd(raop,dnssd);
     unsigned short udp[3]={0,0,0},tcp[2]={0,0},port=0;
     raop_set_udp_ports(raop,udp);raop_set_tcp_ports(raop,tcp);

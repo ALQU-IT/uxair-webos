@@ -197,11 +197,11 @@ int main() {
         std::vector<UiRow> rows;
         if(which==UiPage::Mirroring) {
             rows.push_back(UiRow("Resolution",settings.width==3840?"4K / 30":settings.width==1920?"1080p / 30":"720p / 30","H.264: up to 1080p; HEVC: up to 4K. Reconnect after change",receiver.idle_for_profile_change()));
-            rows.push_back(UiRow("Video codec",settings.codec==MirrorCodec::ExperimentalHevc?"HEVC / H.265 (experimental)":"H.264","HEVC is advertised at every resolution; sender choice is reported below",receiver.idle_for_profile_change()));
+            rows.push_back(UiRow("Codec capability",settings.codec==MirrorCodec::ExperimentalHevc?"HEVC enabled (sender-selected)":"H.264 only","Bit 42 enables HEVC alongside H.264; on the tested B7 iOS still selects H.264 at 720p/1080p",receiver.idle_for_profile_change()));
             rows.push_back(UiRow("Maximum frame rate","30 FPS","Supported sender limit",false));
             rows.push_back(UiRow("Incoming SPS",observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting video","Parsed source dimensions; not output resolution",false));
             rows.push_back(UiRow("HDR10 / Main10",UXPLAY_HDR10_EXPERIMENTAL_ENABLED?"Experimental":"Unavailable","No verified decoder metadata path on webOS 3.9; Main10 is rejected",false));
-            rows.push_back(UiRow("AirPlay receiver",receiver.status(),"If the sender chooses an unsupported codec, reconnect with H.264",false));
+            rows.push_back(UiRow("AirPlay receiver",receiver.status(),"HEVC mode accepts H.264 if the sender selects it",false));
         } else if(which==UiPage::Media) {
             rows.push_back(UiRow("Audio delay",std::to_string(receiver.audio_delay_ms.load())+" ms","Set before connecting; step size 25 ms",receiver.idle_for_profile_change()));
             rows.push_back(UiRow("Incoming audio",receiver.has_audio?audio_codec_name(receiver.last_audio_codec.load()):"Awaiting audio","AirPlay audio stream status",false));
@@ -211,7 +211,7 @@ int main() {
             rows.push_back(UiRow("On-screen overlay",diagnostics_mode_name(settings.diagnostics),"Off, Compact or Detailed"));
             std::string resolution=observed_width?std::to_string(observed_width)+" x "+std::to_string(observed_height):"Awaiting SPS";
             rows.push_back(UiRow("Negotiated codec / SPS",std::string(receiver.incoming_video_codec==2?"HEVC":receiver.incoming_video_codec==1?"H.264":"Awaiting codec")+"  "+resolution,
-                "Advertised limit "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" / 30 FPS; sender may choose H.264 with HEVC enabled"));
+                "Receiver limit "+std::to_string(settings.width)+"x"+std::to_string(settings.height)+" / 30 FPS; iOS selects the codec"));
             rows.push_back(UiRow("Incoming / feed FPS",fmt("%.1f",live_incoming_fps)+" / "+fmt("%.1f",live_feed_fps),"One-second callback and accepted-feed windows"));
             rows.push_back(UiRow("PTS / display FPS",fmt("%.1f",live_pts_fps)+" / unavailable",
                 "Starfish video-info "+std::to_string(media.video_info_width.load())+"x"+std::to_string(media.video_info_height.load())+
@@ -254,7 +254,7 @@ int main() {
                 break;
             case UiDialogKind::Codec:
                 d.current=settings.codec==MirrorCodec::ExperimentalHevc?1:0;
-                d.title="Screen mirroring codec";d.description="HEVC is offered at every supported resolution; sender choice is not guaranteed. Reconnect after change.";
+                d.title="Screen mirroring codec";d.description="HEVC mode advertises AirPlay bit 42 alongside H.264; iOS currently selects H.264 at 720p/1080p on the tested B7.";
                 d.choices={"H.264 only  -  safe default","Experimental HEVC / H.265  -  Main 8-bit SDR"};break;
             case UiDialogKind::Overlay:
                 d.current=int(settings.diagnostics);
@@ -304,7 +304,7 @@ int main() {
         settings=proposed;
         fallback_reason.clear();
         receiver.show(codec==MirrorCodec::ExperimentalHevc?
-            "Experimental HEVC advertised. Reconnect sender; check actual codec.":
+            "HEVC enabled; iOS chooses codec. Check actual codec after reconnect.":
             "H.264 active. Reconnect sender.");
     };
     bool running=true;

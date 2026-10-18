@@ -64,15 +64,21 @@ int main() {
     assert(set_mirror_resolution(hevc,1280,720));
     AdvertisedCapabilities hevc_720=advertised_capabilities(hevc);
     assert(hevc_720.hevc && hevc_720.width==1280 && hevc_720.height==720);
+    assert(codec_negotiation_result(hevc,SenderVideoCodec::Hevc)==CodecNegotiationResult::Accept);
+    assert(codec_negotiation_result(hevc,SenderVideoCodec::H264)==CodecNegotiationResult::AcceptH264Fallback);
     assert(set_mirror_resolution(hevc,1920,1080));
     AdvertisedCapabilities hevc_1080=advertised_capabilities(hevc);
     assert(hevc_1080.hevc && hevc_1080.width==1920 && hevc_1080.height==1080);
+    assert(codec_negotiation_result(hevc,SenderVideoCodec::Hevc)==CodecNegotiationResult::Accept);
+    assert(codec_negotiation_result(hevc,SenderVideoCodec::H264)==CodecNegotiationResult::AcceptH264Fallback);
     assert(set_mirror_resolution(hevc,3840,2160));
     assert(input_fits_mirror_profile(hevc,3840,2160));
     assert(!input_fits_mirror_profile(hevc,4096,2160));
     assert(mirror_limits(hevc).queue_bytes==16*1024*1024);
     AdvertisedCapabilities hevc_profile=advertised_capabilities(hevc);
     assert(hevc_profile.hevc && hevc_profile.width==3840 && hevc_profile.height==2160);
+    assert(codec_negotiation_result(hevc,SenderVideoCodec::Hevc)==CodecNegotiationResult::Accept);
+    assert(codec_negotiation_result(hevc,SenderVideoCodec::Unsupported)==CodecNegotiationResult::Reject);
     assert(!hevc_profile.hls && !hevc_profile.direct_video && hevc_profile.max_fps==30);
     assert(save_settings(settings_path,hevc));
     assert(load_settings(settings_path,loaded));
@@ -80,6 +86,8 @@ int main() {
     assert(set_mirror_codec(hevc,MirrorCodec::H264));
     assert(hevc.width==1920 && hevc.height==1080); // UHD -> highest supported H.264 profile
     assert(!advertised_capabilities(hevc).hevc);
+    assert(codec_negotiation_result(hevc,SenderVideoCodec::H264)==CodecNegotiationResult::Accept);
+    assert(codec_negotiation_result(hevc,SenderVideoCodec::Hevc)==CodecNegotiationResult::Reject);
     VideoWindow landscape=fit_video_window(1920,1080,1920,1080);
     assert(landscape.x==0 && landscape.y==0 && landscape.width==1920 && landscape.height==1080);
     VideoWindow portrait=fit_video_window(1080,1920,1920,1080);

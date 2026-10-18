@@ -31,7 +31,7 @@ def main():
     changelog = (ROOT / 'CHANGELOG.md').read_text()
     if f'## [{version}]' not in changelog:
         fail('CHANGELOG does not contain the current version')
-    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE_NOTES_1.0.0_RC.md', 'docs/RELEASE_NOTES_1.0.0_RC2.md', 'docs/RELEASE_NOTES_1.0.0_RC3.md', 'docs/REPOSITORY_METADATA.md']:
+    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE_NOTES_1.0.0_RC.md', 'docs/RELEASE_NOTES_1.0.0_RC2.md', 'docs/RELEASE_NOTES_1.0.0_RC3.md', 'docs/RELEASE_NOTES_1.0.0_RC4.md', 'docs/REPOSITORY_METADATA.md']:
         if not (ROOT / path).is_file():
             fail(f'missing required documentation: {path}')
     tracked_sources = list((ROOT / 'src').glob('*.cpp'))

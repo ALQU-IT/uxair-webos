@@ -2,6 +2,7 @@
 #include "shell.h"
 #include "identity.h"
 #include "capabilities.h"
+#include "pairing_registration.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -216,15 +217,17 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
     cb.check_register=[](void *p,const char *key)->bool{Receiver& r=self(p);std::lock_guard<std::mutex> l(r.mutex);return valid_key(key)&&r.keys.count(key);};
     cb.register_client=[](void *p,const char *,const char *key,const char *){
         if(!valid_key(key)) return;
-        Receiver& r=self(p);std::lock_guard<std::mutex> l(r.mutex);
-        if(r.keys.count(key) || r.keys.size()>=64) return;
-        std::string path=r.directory+"/paired.keys";
-        FILE *file=fopen((path+".tmp").c_str(),"w");if(!file)return;
-        bool ok=true;for(const auto& k:r.keys)if(fprintf(file,"%s\n",k.c_str())<0)ok=false;
-        if(fprintf(file,"%s\n",key)<0)ok=false;
-        if(fflush(file)!=0||fsync(fileno(file))!=0)ok=false;
-        if(fclose(file)!=0)ok=false;
-        if(ok&&rename((path+".tmp").c_str(),path.c_str())==0) {r.keys.insert(key);r.pairing.completed();r.message="AirPlay pairing complete";}
+        Receiver& r=self(p);
+        const int64_t began=now_ns();
+        fprintf(stderr,"[pairing] register begin\n");
+        bool dismissed=false;
+        PairingRegistrationResult result=register_pairing_key(r.pairing_store_mutex,r.mutex,
+            r.keys,r.pairing,r.message,r.directory,key,dismissed);
+        const char *result_name=result==PairingRegistrationResult::Added?"complete":
+            result==PairingRegistrationResult::AlreadyRegistered?"already-registered":
+            result==PairingRegistrationResult::LimitReached?"key-limit":"persistence-failed";
+        fprintf(stderr,"[pairing] register %s overlay_dismissed=%d elapsed_ms=%.2f\n",
+                result_name,int(dismissed),(now_ns()-began)/1e6);
     };
     ntp_global_init();
     raop=raop_init(&cb);if(!raop) return false;

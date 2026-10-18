@@ -22,5 +22,8 @@ assert 'draw_pairing_modal(pin,w,h)' in overlay
 assert 'SDL_RenderPresent(renderer)' not in modals
 assert 'shell.pairing_popup' not in main and 'shell.donation_panel' not in main
 assert 'pairing_input_result(!pairing_pin.empty(),action==Action::Back' in main
-assert 'activate_profile(settings)' in main[main.index('PairingInputResult pairing_input'):]
+profile = section(main, 'auto activate_profile=', 'const char *app_id=')
+assert profile.index('receiver.stop();receiver.disconnect();') < profile.index('receiver.start(state_dir,requested)')
+assert 'register_pairing_key(r.pairing_store_mutex,r.mutex' in (ROOT / 'src/receiver.cpp').read_text()
+assert '[pairing] UI observed prompt=%s' in main
 print('PASS: pairing renders in one composed present and Back cancels through RAOP restart')

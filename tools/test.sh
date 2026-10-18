@@ -24,6 +24,9 @@ build/tests/ui-navigation-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/pairing_ui_test.cpp src/ui_navigation.cpp -o build/tests/pairing-ui-test
 build/tests/pairing-ui-test
+c++ -std=c++11 -g -fsanitize=address,undefined -pthread -Isrc \
+  tests/pairing_registration_test.cpp -o build/tests/pairing-registration-test
+build/tests/pairing-registration-test
 python3 tests/pairing_render_test.py
 python3 tests/donation_qr_test.py
 python3 tests/pairing_secret_log_test.py

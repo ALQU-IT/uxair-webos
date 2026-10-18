@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- RC4: atomic pairing-key persistence outside the UI-shared receiver lock, RAOP callback quiescence before receiver-state reset, and bounded PIN-free pairing lifecycle diagnostics.
+- RC4: sanitizer-backed regression coverage for cancellation followed by successful pairing and immediate UI-state dismissal.
 - UxAir application identity, launcher branding, and 80/256/512 px icon assets, packaged under a new app ID to preserve existing UxPlay installations and pairing data.
 - Standalone RAOP audio playback using the existing Starfish BUFFERSTREAM and PCM output path for negotiated AAC-LC, AAC-ELD, ALAC, and PCM streams.
 - Audio session negotiation and lifecycle diagnostics, volume/mute handling, existing RAOP pause/flush/reconnect handling, and focused audio-mode tests.

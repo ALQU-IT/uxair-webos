@@ -89,7 +89,9 @@ int main() {
         }
     }
     auto activate_profile=[&](const Settings& requested)->bool {
-        receiver.disconnect();receiver.stop();
+        // raop_destroy joins its HTTP thread. Let in-flight callbacks finish
+        // before clearing the state they may still update.
+        receiver.stop();receiver.disconnect();
         if(receiver.start(state_dir,requested))return true;
         receiver.stop();return false;
     };
@@ -376,6 +378,7 @@ int main() {
         std::string pairing_pin=receiver.pin();
         const bool pairing_changed=pairing_pin!=last_rendered_pin;
         if(pairing_changed) {
+            fprintf(stderr,"[pairing] UI observed prompt=%s\n",pairing_pin.empty()?"dismissed":"shown");
             last_rendered_pin=pairing_pin;last_ui=0;
             if(opened && !ui_visible)pairing_overlay_dirty=true;
         }
@@ -916,8 +919,8 @@ int main() {
             recover_playback("feed-rejected");
         }
     }
-    if(opened)finish();
-    receiver.stop();media.close();
+    if(opened)finish(false,true);
+    receiver.stop();receiver.disconnect();media.close();
     fprintf(stderr,"[app] stopped cleanly\n");
     return 0;
 }

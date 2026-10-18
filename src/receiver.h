@@ -62,6 +62,8 @@ struct Receiver {
     raop_t *raop = nullptr;
     dnssd_t *dnssd = nullptr;
     std::mutex mutex;
+    // Serializes paired.keys snapshots without blocking UI reads of pairing state.
+    std::mutex pairing_store_mutex;
     std::deque<Packet> packets;
     size_t bytes=0;
     size_t peak_packets=0, peak_bytes=0;

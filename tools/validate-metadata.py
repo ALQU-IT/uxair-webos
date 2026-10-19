@@ -4,17 +4,66 @@ import json
 import re
 import struct
 import sys
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = json.loads((ROOT / 'packaging/appinfo.json').read_text())
 EXPECTED_ID = 'com.github.depius.uxair'
 EXPECTED_NAME = 'UxAir'
-EXPECTED_DESCRIPTION = 'UxAir is an open-source AirPlay receiver for compatible rooted LG webOS TVs, supporting hardware-accelerated H.264 and HEVC screen mirroring.'
+EXPECTED_DESCRIPTION = 'AirPlay Receiver for webOS'
 
 def fail(message):
     print(f'FAIL: {message}', file=sys.stderr)
     raise SystemExit(1)
+
+def decode_rgba_png(data):
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        fail('launcher asset is not a PNG')
+    offset, width, height, depth, color_type = 8, None, None, None, None
+    compressed = bytearray()
+    while offset < len(data):
+        length = struct.unpack('>I', data[offset:offset + 4])[0]
+        kind = data[offset + 4:offset + 8]
+        chunk = data[offset + 8:offset + 8 + length]
+        offset += length + 12
+        if kind == b'IHDR':
+            width, height, depth, color_type = struct.unpack('>IIBB', chunk[:10])[:4]
+        elif kind == b'IDAT':
+            compressed.extend(chunk)
+        elif kind == b'IEND':
+            break
+    if depth != 8 or color_type != 6:
+        fail('launcher PNGs must use 8-bit RGBA channels')
+    raw = zlib.decompress(compressed)
+    stride = width * 4
+    previous = bytearray(stride)
+    pixels = []
+    cursor = 0
+    for _ in range(height):
+        filter_type = raw[cursor]
+        scan = bytearray(raw[cursor + 1:cursor + 1 + stride])
+        cursor += stride + 1
+        for i in range(stride):
+            left = scan[i - 4] if i >= 4 else 0
+            above = previous[i]
+            upper_left = previous[i - 4] if i >= 4 else 0
+            if filter_type == 1:
+                scan[i] = (scan[i] + left) & 255
+            elif filter_type == 2:
+                scan[i] = (scan[i] + above) & 255
+            elif filter_type == 3:
+                scan[i] = (scan[i] + ((left + above) // 2)) & 255
+            elif filter_type == 4:
+                estimate = left + above - upper_left
+                da, db, dc = abs(estimate - left), abs(estimate - above), abs(estimate - upper_left)
+                predictor = left if da <= db and da <= dc else above if db <= dc else upper_left
+                scan[i] = (scan[i] + predictor) & 255
+            elif filter_type != 0:
+                fail('unsupported PNG scanline filter')
+        pixels.extend(tuple(scan[i:i + 4]) for i in range(0, stride, 4))
+        previous = scan
+    return width, height, pixels
 
 def main():
     if APP['id'] != EXPECTED_ID:
@@ -23,6 +72,10 @@ def main():
         fail('title and vendor must use the public product name')
     if APP.get('appDescription') != EXPECTED_DESCRIPTION:
         fail('app description does not match the approved product description')
+    if len(APP['appDescription']) > 60:
+        fail('launcher subtitle exceeds the webOS metadata limit')
+    if APP.get('iconColor') != '#1D2D47' or APP.get('largeIcon') != 'largeIcon.png':
+        fail('launcher tile color or large icon metadata is missing')
     if APP['main'] != 'uxair':
         fail('unexpected executable name')
     version = APP['version']
@@ -31,23 +84,29 @@ def main():
     changelog = (ROOT / 'CHANGELOG.md').read_text()
     if f'## [{version}]' not in changelog:
         fail('CHANGELOG does not contain the current version')
-    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE_NOTES_1.0.0_RC.md', 'docs/RELEASE_NOTES_1.0.0_RC2.md', 'docs/RELEASE_NOTES_1.0.0_RC3.md', 'docs/RELEASE_NOTES_1.0.0_RC4.md', 'docs/RELEASE_NOTES_1.0.0_RC5.md', 'docs/REPOSITORY_METADATA.md']:
+    for path in ['README.md', 'THIRD_PARTY.md', 'docs/RELEASING.md', 'docs/DEVELOPMENT.md', 'docs/ICON_ASSETS.md', 'docs/RELEASE_NOTES_1.0.0_UI.md', 'docs/RELEASE_NOTES_1.0.0_RC.md', 'docs/RELEASE_NOTES_1.0.0_RC2.md', 'docs/RELEASE_NOTES_1.0.0_RC3.md', 'docs/RELEASE_NOTES_1.0.0_RC4.md', 'docs/RELEASE_NOTES_1.0.0_RC5.md', 'docs/REPOSITORY_METADATA.md']:
         if not (ROOT / path).is_file():
             fail(f'missing required documentation: {path}')
     tracked_sources = list((ROOT / 'src').glob('*.cpp'))
     text = '\n'.join(p.read_text() for p in tracked_sources)
     if 'org.webosbrew.uxplaylg' in text or 'UxPlay LG' in text:
         fail('legacy identity remains in application source')
-    icon = (ROOT / 'packaging/icon.png').read_bytes()
-    if icon[:8] != b'\x89PNG\r\n\x1a\n' or struct.unpack('>II', icon[16:24]) != (80, 80):
-        fail('webOS launcher icon must be a valid 80x80 PNG')
-    for size in (256, 512):
-        path = ROOT / f'assets/uxair-icon-{size}.png'
+    if 'Daniel Filho' in (ROOT / 'src/main.cpp').read_text():
+        fail('personal name must not appear in application UI; use the upstream handle')
+    for size, path in [(80, ROOT / 'packaging/icon.png'), (130, ROOT / 'packaging/largeIcon.png'), (256, ROOT / 'assets/uxair-icon-256.png'), (512, ROOT / 'assets/uxair-icon-512.png')]:
         if not path.is_file():
             fail(f'missing {size}px UxAir icon asset')
         data = path.read_bytes()
-        if data[:8] != b'\x89PNG\r\n\x1a\n' or struct.unpack('>II', data[16:24]) != (size, size):
+        width, height, pixels = decode_rgba_png(data)
+        if (width, height) != (size, size):
             fail(f'invalid {size}px UxAir icon asset')
+        if any(pixel[3] != 255 for pixel in pixels):
+            fail(f'{size}px launcher asset must be opaque edge to edge')
+        corners = (pixels[0], pixels[size - 1], pixels[-size], pixels[-1])
+        if any(pixel != (29, 45, 71, 255) for pixel in corners):
+            fail(f'{size}px launcher tile does not use the solid slate-blue background')
+        if any(r >= 160 and g >= 80 and b <= 130 and r > g for r, g, b, _ in pixels):
+            fail(f'{size}px launcher asset contains yellow/orange pixels')
     if not (ROOT / 'assets/uxair-icon.svg').is_file():
         fail('missing scalable UxAir icon artwork')
     funding = (ROOT / '.github/FUNDING.yml').read_text().strip()

@@ -25,6 +25,10 @@ An audio-only RAOP path for negotiated AAC, AAC-ELD, ALAC, and PCM is implemente
 
 The iPhone, iPad, or Mac selects the actual AirPlay codec and rate. Selecting HEVC advertises HEVC alongside H.264; it cannot force a sender that chooses H.264. Direct Photos playback is distinct from Photos or video shown by mirroring. Direct Photos/video, HLS, AirPlay 2, HDR/Main10, and native 4K scanout are not supported or verified.
 
+## Screenshots
+
+Owner-provided screenshots will be added here after the final launcher artwork and release candidate are reviewed. No screenshots are included yet.
+
 ## Hardware and requirements
 
 - A compatible rooted LG webOS TV with native application development enabled.
@@ -81,7 +85,12 @@ The build verifies ARM32 soft-float ABI and GLIBC compatibility. The source arch
 
 ## Acknowledgements and license
 
-This repository is [depius/uxair-webos](https://github.com/depius/uxair-webos) (formerly `uxplay-webos`). UxAir development and adaptation: [@depius](https://github.com/depius). The AirPlay receiver core is [UxPlay by FDH2](https://github.com/FDH2/UxPlay); the original webOS port is by Daniel Filho / [@danlflh](https://github.com/danlflh). This project is an adaptation and is not written from scratch. Additional dependencies and license details are listed in [THIRD_PARTY.md](THIRD_PARTY.md). The project is licensed under [GPL-3.0-or-later](LICENSE); corresponding sources and build instructions are provided for releases.
+This project builds on the excellent work of:
+
+- **UxPlay by FDH2** — the original open-source AirPlay mirroring server.
+- [**uxplay-webOS by Daniel Filho (@danlflh)**](https://github.com/danlflh/uxplay-webos) — the original webOS port.
+
+UxAir extends this foundation with additional features, performance improvements, and a redesigned interface. Development and adaptation: [@depius](https://github.com/depius). This repository is [depius/uxair-webos](https://github.com/depius/uxair-webos) (formerly `uxplay-webos`). UxAir is licensed under [GPL-3.0-or-later](LICENSE); corresponding sources, upstream attribution, and third-party notices are preserved in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Support development
 

@@ -29,9 +29,9 @@ Check package metadata separately:
 python3 tools/validate-metadata.py
 ```
 
-The GitHub Actions `host-tests` job uses Ubuntu 24.04 and runs metadata validation plus the complete sanitizer-backed native tests. The [branch push run on 2026-10-14](https://github.com/depius/uxplay-webos/actions/runs/38603156648) passed all steps. The native tests do not build or exercise the TV application.
+The GitHub Actions `host-tests` job uses Ubuntu 24.04 and runs metadata validation plus the complete sanitizer-backed native tests. The native tests do not build or exercise the TV application.
 
-For WSL2, keep the checkout in the Linux filesystem (for example `~/src/uxplay-webos`) for normal Linux file permissions and build performance. This workspace currently has no WSL distribution or container runtime installed; the commands above have not been executed here.
+For WSL2, keep the checkout in the Linux filesystem (for example `~/src/uxair-webos`) for normal Linux file permissions and build performance.
 
 ## ARMv7 webOS target build
 

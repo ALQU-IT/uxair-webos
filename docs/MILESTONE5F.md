@@ -14,7 +14,7 @@ The sample parser enforces VPS/SPS/PPS, Main 8-bit, exact dimensions and bounded
 
 ## Manual B7 procedure from rooted Windows SSH
 
-Download the `hevc-probe-armv7-<source SHA>` artifact from the successful [HEVC probe workflow](https://github.com/depius/uxplay-webos/actions/workflows/hevc-probe-ipk.yml), verify all files against `SHA256SUMS`, and keep the 0.1.2 IPK for rollback. Close active AirPlay playback and make sure the probe is not running. These commands never install or start anything automatically from CI.
+Download the `hevc-probe-armv7-<source SHA>` artifact from the successful [HEVC probe workflow](https://github.com/depius/uxair-webos/actions/workflows/hevc-probe-ipk.yml), verify all files against `SHA256SUMS`, and keep the 0.1.2 IPK for rollback. Close active AirPlay playback and make sure the probe is not running. These commands never install or start anything automatically from CI.
 
 From PowerShell, replace the key and IP placeholders:
 

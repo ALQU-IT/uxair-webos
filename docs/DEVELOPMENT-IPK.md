@@ -1,6 +1,6 @@
 # UxAir 1.0.0 release-candidate package
 
-The `Build UxAir 1.0.0 RC5 ARMv7 diagnostic candidate` workflow runs the sanitizer-backed host tests before it builds the ARMv7 application on Apple Silicon macOS. It validates the ELF ABI and IPK contents, including the launcher icon and offline donation QR, generates corresponding source and checksums, then uploads one artifact. The artifact is not a GitHub Release and does not publish a tag.
+The `Build UxAir 1.0.0 UI candidate ARMv7` workflow runs the sanitizer-backed host tests before it builds the ARMv7 application on Apple Silicon macOS. It validates the ELF ABI and IPK contents, including both launcher icons and the offline donation QR, generates corresponding source and checksums, then uploads one artifact. The artifact is not a GitHub Release and does not publish a tag.
 
 The artifact contains:
 
@@ -13,7 +13,7 @@ The artifact contains:
 
 ## Download and verify
 
-1. Download the `uxair-1.0.0-armv7-rc5-<commit>` artifact from the successful GitHub Actions run and extract it.
+1. Download the `uxair-1.0.0-armv7-ui-polish-<commit>` artifact from the successful GitHub Actions run and extract it.
 2. Confirm `BUILD_COMMIT.txt` matches the run's source commit. Verify both files:
 
    ```sh

@@ -2,7 +2,7 @@
 
 ## Release candidate checks
 
-1. Start from the reviewed UxAir release-preparation branch and record the source commit. Do not rewrite or rename the existing UxPlay repository as part of this process.
+1. Start from the reviewed UxAir release-preparation branch and record the source commit. Do not rewrite Git history or publish a release as part of candidate preparation.
 2. Keep version `1.0.0` in `packaging/appinfo.json` for the RC. The package identity is `com.github.depius.uxair`; the former UxPlay development app has a different ID and is kept installed as the rollback option.
 3. Run `python3 tools/validate-metadata.py`, `tools/test.sh`, `tools/build.sh`, `python3 tools/verify-elf.py build/app`, `python3 tools/validate-ipk.py`, and `tools/source-package.py`.
 4. Inspect the IPK and source archive for private keys, logs, sender data, pairing/settings files, and local paths. Confirm the IPK is `com.github.depius.uxair_1.0.0_arm.ipk` and the source archive is `uxair-webos-1.0.0-source.tar.gz`.

@@ -1,9 +1,9 @@
 # Target GitHub repository metadata
 
-The destination repository requested for the public project is `depius/uxair-webos`.
+The requested destination repository is `depius/uxair-webos`. This preparation branch updates canonical project references but does not rename the GitHub repository.
 
 - **Name:** `uxair-webos`
-- **Description:** UxAir is an open-source AirPlay receiver for compatible rooted LG webOS TVs, supporting hardware-accelerated H.264 and HEVC screen mirroring.
-- **Suggested topics:** `webos`, `lg-webos`, `airplay-compatible`, `airplay-mirroring`, `uxplay`, `armv7`, `homebrew`
+- **Description:** AirPlay receiver for LG webOS TVs, supporting screen mirroring, photos, video and audio.
+- **Topics:** `airplay`, `webos`, `lg-tv`, `screen-mirroring`, `uxplay`, `airplay-receiver`, `open-source`
 
-The RC3 code and documentation are prepared for this target, but the GitHub tools available in this session do not expose repository rename or metadata settings. To preserve history and existing issues, manually rename the repository in GitHub under **Settings → General → Repository name**, changing `uxplay-webos` to `uxair-webos`. GitHub preserves the history and redirects the old URL. Then apply the description and topics above and update the local `origin` URL. No remote repository settings have been changed by this batch.
+Repository metadata tools in this session can read the repository and report admin permission, but cannot change its name, description, or topics. No repository settings have been changed. To rename while preserving history and issues, open **depius/uxplay-webos → Settings → General → Repository name**, enter `uxair-webos`, and confirm. Then open the repository **About** settings and enter the description and topics above. Finally update local clones with `git remote set-url origin https://github.com/depius/uxair-webos.git`. Do not create a second repository.

@@ -2,10 +2,12 @@
   "id": "com.github.depius.uxair",
   "version": "1.0.0",
   "vendor": "UxAir",
-  "appDescription": "UxAir is an open-source AirPlay receiver for compatible rooted LG webOS TVs, supporting hardware-accelerated H.264 and HEVC screen mirroring.",
+  "appDescription": "AirPlay Receiver for webOS",
   "type": "native",
   "main": "uxair",
   "title": "UxAir",
   "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#1D2D47",
   "requiredMemory": 96
 }

@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Final UI preparation: full-bleed slate-blue launcher artwork, metadata-controlled tile color, a matching 130 px large icon, and reproducible PNG exports from the vector master.
+- Public README screenshots placeholder and exact GitHub repository description/topics/rename instructions; no release was published and no repository settings were changed.
 - RC5: runtime APPID/ACB/Starfish identity diagnostics, media-open failure-stage reporting, actionable playback failure status, and baseline payload/identity regression tests.
 - RC5: exact 1080p H.264/30 payload equivalence coverage plus sanitizer tests for the startup error-message mapping.
 - RC4: atomic pairing-key persistence outside the UI-shared receiver lock, RAOP callback quiescence before receiver-state reset, and bounded PIN-free pairing lifecycle diagnostics.
@@ -21,6 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Final branding consistency: launcher title UxAir, subtitle AirPlay Receiver for webOS, concise app description, and `@depius` UI attribution without a personal name.
 - Verified HEVC and 60 FPS options no longer carry obsolete experimental labels; sender codec/rate selection and unmeasured display FPS remain accurately described.
 - Replaced the legacy UxPlay launcher identity with `com.github.depius.uxair`; old development installations are retained as a separate app and are never removed automatically.
 - Updated public metadata, executable naming, packaging, and CI artifact names for UxAir.

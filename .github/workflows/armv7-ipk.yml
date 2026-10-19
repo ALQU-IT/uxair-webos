@@ -1,4 +1,4 @@
-name: Build UxAir 1.0.0 RC5 ARMv7 diagnostic candidate
+name: Build UxAir 1.0.0 UI candidate ARMv7
 
 on:
   push:
@@ -13,6 +13,7 @@ on:
       - codex/uxair-1.0.0-rc3-ui-finalization
       - codex/uxair-1.0.0-rc4-pairing-freeze
       - codex/uxair-1.0.0-rc5-starfish-regression
+      - codex/uxair-final-ui-branding
   pull_request:
     branches:
       - main
@@ -23,7 +24,7 @@ permissions:
 
 jobs:
   native-tests:
-    if: github.event_name != 'pull_request' || github.head_ref == 'codex/uxair-1.0.0-rc5-starfish-regression'
+    if: github.event_name != 'pull_request' || github.head_ref == 'codex/uxair-final-ui-branding'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -39,7 +40,7 @@ jobs:
           python3 tools/validate-metadata.py
           tools/test.sh
   build-ipk:
-    if: github.event_name != 'pull_request' || github.head_ref == 'codex/uxair-1.0.0-rc5-starfish-regression'
+    if: github.event_name != 'pull_request' || github.head_ref == 'codex/uxair-final-ui-branding'
     needs: native-tests
     runs-on: macos-15
     timeout-minutes: 180
@@ -81,7 +82,7 @@ jobs:
       - name: Upload verified UxAir 1.0.0 candidate and source
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: uxair-1.0.0-armv7-rc5-${{ github.sha }}
+          name: uxair-1.0.0-armv7-ui-polish-${{ github.sha }}
           path: |
             dist/*.ipk
             dist/*-source.tar.gz

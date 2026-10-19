@@ -283,7 +283,7 @@ int main() {
             rows.push_back(UiRow("Reset usage history","Confirm","Pairing and receiver identity are retained"));
         } else if(which==UiPage::System) {
             rows.push_back(UiRow("UxAir",build_version,"AirPlay Receiver for webOS",false));
-            rows.push_back(UiRow("Developer","@depius","Based on UxPlay by FDH2 and the original webOS port by Daniel Filho",false));
+            rows.push_back(UiRow("Developer","@depius","Based on UxPlay by FDH2 and uxplay-webOS by @danlflh",false));
             rows.push_back(UiRow("Project","UxAir","UxAir – AirPlay Receiver for webOS",false));
             rows.push_back(UiRow("License","GPL-3.0-or-later","See bundled license and third-party notices",false));
             rows.push_back(UiRow("Enjoying the app? Buy me a coffee.","","Optional support · UxAir is free and open source"));

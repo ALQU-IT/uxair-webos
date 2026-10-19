@@ -7,21 +7,21 @@ UxAir is a native AirPlay mirroring receiver for compatible rooted LG webOS TVs,
 
 ## Status
 
-Version 1.0.0 is prepared as a release candidate. The verified physical target is the LG OLED B7 (2017) running webOS 3.9. Testing on other models or firmware is not implied. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
+UxAir 1.0.0 is prepared as a release candidate. Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
 
 ## Features
 
-- H.264 AirPlay mirroring up to 1080p/60.
-- HEVC/H.265 mirroring up to 4K/60.
-- 30 and 60 FPS profiles, including the confirmed 30 FPS modes.
+- H.264 AirPlay mirroring up to 1080p/60, tested on the B7.
+- HEVC/H.265 mirroring up to 4K/60, tested on the B7.
+- 30 and 60 FPS profiles, including the B7-tested H.264 720p/1080p and HEVC 4K modes.
 - Portrait and landscape adaptation.
+- Photos and videos displayed through the tested mirroring workflows.
 - Starfish hardware-accelerated video playback with stereo audio during mirroring.
+- Standalone AirPlay music/audio-only playback, confirmed on the B7 in the tested workflow; individual audio codec variants were not tested separately.
 - Configurable codec, resolution, frame rate, audio delay, and diagnostics.
 - Magic Remote pointer, arrow, OK, and Back navigation.
 - Large on-screen AirPlay PIN pairing, saved configuration, session history, and automatic decoder recovery/fallback.
 - Lightweight diagnostics separating advertised rate, incoming rate, accepted Feed rate, and decoder callbacks. Decoder callback rate does not claim displayed FPS.
-
-An audio-only RAOP path for negotiated AAC, AAC-ELD, ALAC, and PCM is implemented but awaits physical B7 validation; it is not listed as a verified feature.
 
 The iPhone, iPad, or Mac selects the actual AirPlay codec and rate. Selecting HEVC advertises HEVC alongside H.264; it cannot force a sender that chooses H.264. Direct Photos playback is distinct from Photos or video shown by mirroring. Direct Photos/video, HLS, AirPlay 2, HDR/Main10, and native 4K scanout are not supported or verified.
 
@@ -33,7 +33,7 @@ Owner-provided screenshots will be added here after the final launcher artwork a
 
 - A compatible rooted LG webOS TV with native application development enabled.
 - A TV and sender on the same local network with multicast/mDNS discovery available.
-- Physical playback has been verified on the LG OLED B7 with webOS 3.9. Other TV models remain unverified.
+- Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified.
 - The ARMv7 build uses the pinned webOS Brew toolchain. CI performs host tests and builds/validates the ARMv7 IPK.
 
 ## Install and use
@@ -76,7 +76,7 @@ The build verifies ARM32 soft-float ABI and GLIBC compatibility. The source arch
 
 ## Known limitations and troubleshooting
 
-- Audio-only playback has not yet been confirmed on the B7. Protected media and unsupported AirPlay protocols are not decrypted or altered.
+- The tested standalone music workflow does not validate each negotiated audio codec separately. Protected media and unsupported AirPlay protocols are not decrypted or altered.
 - An AirPlay sender may select a different codec or frame rate than the requested maximum.
 - Incoming/Feed rates and Starfish `FRAMEREADY` callbacks are not proof of displayed FPS. Native panel output resolution is unmeasured.
 - HDR10/Main10, direct Photos/video, AirPlay 2, startup at boot, broad TV compatibility, and macOS extended-display use are not supported or certified.

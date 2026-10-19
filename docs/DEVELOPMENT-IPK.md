@@ -26,4 +26,4 @@ The artifact contains:
 
 Install the IPK on a compatible rooted TV with webOS native development access. UxAir uses `com.github.depius.uxair`; it installs separately from `com.github.danlflh.uxplaywebos.dev` and does not uninstall or overwrite the existing UxPlay app. UxAir starts with independent pairing, receiver identity, and settings. Pair it again and configure it separately.
 
-For rollback, close UxAir and launch the retained UxPlay webOS development app. Do not uninstall the old app until UxAir has passed physical checks. CI does not connect to a TV, and an IPK/ELF pass does not verify audio playback or display behavior.
+For rollback, close UxAir and launch the retained UxPlay webOS development app. Do not uninstall the old app until UxAir has passed physical checks. CI does not connect to a TV or establish hardware behavior. The owner separately confirmed the tested standalone AirPlay music workflow on the B7; individual negotiated codec variants, native output resolution, and panel-presented FPS were not each measured.

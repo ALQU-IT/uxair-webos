@@ -6,7 +6,7 @@ This is an installable candidate build for rooted compatible LG webOS TVs. It is
 
 - H.264 mirroring through 1080p/60 and HEVC/H.265 mirroring through 4K/60, confirmed by the owner on an LG OLED B7 with webOS 3.9.
 - Portrait/landscape adaptation, mirroring audio, Magic Remote navigation, local pairing/settings, diagnostics, and decoder recovery.
-- Standalone RAOP audio playback path for negotiated AAC-LC, AAC-ELD, ALAC, and PCM converted to stereo PCM for Starfish. This implementation still needs physical B7 validation before it can be called verified.
+- Standalone RAOP audio playback path for negotiated AAC-LC, AAC-ELD, ALAC, and PCM converted to stereo PCM for Starfish. The owner confirmed standalone music/audio-only playback on the B7 in the tested workflow; individual codec variants were not tested separately.
 - New UxAir app ID `com.github.depius.uxair`; the existing UxPlay development app remains installed and untouched.
 
 ## Installation and rollback
@@ -17,7 +17,7 @@ The candidate IPK, corresponding source archive, SHA-256 sums, ELF report, and s
 
 ## Limitations
 
-- Standalone audio and the exact Apple Music protocol path are not yet verified on the B7. The app uses the legacy RAOP callbacks and does not implement speculative AirPlay 2 or DRM decryption.
+- Standalone music/audio-only playback was confirmed on the B7 in the tested workflow. Individual negotiated audio codecs, all Apple Music protocol variants, protected media, and AirPlay 2 were not separately verified or claimed.
 - No claim is made about HDR10/Main10, native 4K panel scanout, or displayed frame rate.
 - The sender selects the actual AirPlay codec/rate; capability advertisement cannot force a particular choice.
 - Only the LG OLED B7 with webOS 3.9 has the described physical validation. Other models and firmware are unverified.
@@ -25,4 +25,4 @@ The candidate IPK, corresponding source archive, SHA-256 sums, ELF report, and s
 
 ## Validation status
 
-The host test suite, ARMv7 build, ELF ABI check, package identity check, and package-content check must pass in GitHub Actions for the artifact to be produced. CI does not establish standalone audio playback or replace the physical B7 checks listed in the README.
+The host test suite, ARMv7 build, ELF ABI check, package identity check, and package-content check passed in GitHub Actions for this candidate. CI does not establish hardware behavior; the owner separately confirmed standalone music/audio-only playback and the other tested workflows on the B7.

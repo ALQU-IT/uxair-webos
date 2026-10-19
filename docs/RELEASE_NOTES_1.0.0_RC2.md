@@ -13,11 +13,11 @@ RC2 adds the final user-facing pairing and donation panels while retaining the t
 
 ## Validation status
 
-The RC2 workflow checks the QR generator output, tests pairing modal state and navigation, validates that the exact bitmap is included in the IPK, and runs host tests plus the ARMv7/ELF build. These checks do not verify QR scanning, PIN readability, or standalone Apple Music playback on the B7; those require physical testing.
+The RC2 workflow checks the QR generator output, tests pairing modal state and navigation, validates that the exact bitmap is included in the IPK, and runs host tests plus the ARMv7/ELF build. These checks do not verify QR scanning, PIN readability, or standalone Apple Music playback on the B7; the owner later confirmed the tested standalone music workflow on the final hardware-verified baseline.
 
 ## Known limits
 
-- Standalone Apple Music audio remains pending B7 verification. The bundled RAOP API does not expose a standalone audio pause callback; flush is used as a temporary pause signal and the next audio packet resumes playback.
+- At the time RC2 was prepared, standalone Apple Music audio was pending B7 verification. The owner later confirmed standalone music/audio-only playback on the final B7-tested baseline; individual negotiated codec variants were not tested separately. The bundled RAOP API does not expose a standalone audio pause callback; flush is used as a temporary pause signal and the next audio packet resumes playback.
 - HDR10/Main10, native 4K panel scanout, and displayed FPS are not claimed.
 - iOS chooses the negotiated codec and rate; HEVC cannot reliably be forced at 720p/1080p.
 - The physical validation described for this project is on the LG OLED B7 with webOS 3.9; other models remain unverified.

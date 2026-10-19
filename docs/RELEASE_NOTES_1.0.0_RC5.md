@@ -1,6 +1,6 @@
 # UxAir 1.0.0 release candidate 5
 
-RC5 is an instrumentation build for the reported Starfish `Load()` failure. It does not claim to restore playback until verified on the B7.
+RC5 is an instrumentation build for the reported Starfish `Load()` failure. The owner subsequently confirmed playback on the physical B7, including H.264 and HEVC mirroring; the final release-candidate verification is summarized in the README.
 
 ## Changes
 
@@ -16,6 +16,6 @@ RC5 is an instrumentation build for the reported Starfish `Load()` failure. It d
 - LG's app metadata reference establishes that `appinfo.json` IDs identify apps and must be unique; it does not establish that Starfish requires the old UxPlay ID. RC5 keeps the UxAir ID unchanged.
 - No legacy-ID package is produced because that ID belongs to the retained UxPlay development installation; installing another package with that ID could replace the rollback app. RC5 remains a single UxAir-identity diagnostic build.
 
-## Hardware verification still required
+## Subsequent hardware verification
 
-Compare the `[media-identity]`, `[media-init]`, `[media] Load`, `[acb]`, and `[session]` records with the working UxPlay run. Capture the corresponding `acb-client.error` and `smp.api` system logs if `Load()` still returns false. Keep pairing keys and device identifiers private. CI confirms build/package validity only; it cannot confirm playback on the B7.
+The owner confirmed on the B7 that RC5 playback works. The tested later release-candidate baseline also confirms standalone AirPlay music/audio-only playback, pairing and reconnection, H.264/HEVC mirroring, and audio with mirroring. The detailed feature and limitation matrix is in the [README](../../README.md). CI confirms build/package validity but cannot substitute for these physical checks.

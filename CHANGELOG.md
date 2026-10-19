@@ -30,8 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Limitations
 
-- Standalone AirPlay audio is implemented but awaits physical LG B7 validation; protected streams, unsupported protocols, and AirPlay 2 are not modified or claimed.
-- Standalone AirPlay audio still awaits physical LG B7 validation, including Apple Music and sender pause/resume behavior.
+- Standalone AirPlay music/audio-only playback was confirmed on the LG OLED B7 in the tested workflow. Individual negotiated codec variants were not tested separately; protected streams and AirPlay 2 remain outside the verified scope.
 - The original owner-provided QR image was not present in the RC2 attachment or workspace; the bundled offline image is generated for the confirmed profile URL.
 - HDR10/Main10, native 4K scanout, and output/display FPS measurement remain unavailable.
 

@@ -27,7 +27,10 @@ The iPhone, iPad, or Mac selects the actual AirPlay codec and rate. Selecting HE
 
 ## Screenshots
 
-Owner-provided screenshots will be added here after the final launcher artwork and release candidate are reviewed. No screenshots are included yet.
+### Video settings
+
+![UxAir video settings on LG webOS](screenshots/uxair-video-settings.png)
+
 
 ## Hardware and requirements
 

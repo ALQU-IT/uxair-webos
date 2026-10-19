@@ -38,14 +38,34 @@ Owner-provided screenshots will be added here after the final launcher artwork a
 
 ## Install and use
 
-Download the `com.github.depius.uxair_1.0.0_arm.ipk` candidate from the GitHub Actions artifact, then install it on a compatible rooted TV with the webOS CLI:
+### Download UxAir
+
+Check the [UxAir GitHub Releases](https://github.com/depius/uxair-webos/releases) page for a published release and download the latest `.ipk` from its release assets. **An official UxAir 1.0.0 release has not been published yet.** The current release-candidate IPK, when available, is distributed as a [GitHub Actions artifact](https://github.com/depius/uxair-webos/actions/workflows/armv7-ipk.yml), not as a public release.
+
+Install UxAir on a compatible rooted LG webOS TV with native app installation enabled. Keep the TV and Apple device on the same local network with multicast/mDNS discovery available.
+
+### Method 1 — webOS Dev Manager (Recommended)
+
+1. Install [webOS Dev Manager](https://github.com/webosbrew/dev-manager).
+2. Connect a compatible rooted LG webOS TV.
+3. Download the UxAir `.ipk` package.
+4. Use webOS Dev Manager's application installation functionality to select the downloaded IPK.
+5. Install and launch UxAir on the television.
+6. Select UxAir from the AirPlay / Screen Mirroring menu on an Apple device.
+7. Enter the pairing PIN if requested.
+
+For standalone music playback, select UxAir as the AirPlay audio output.
+
+### Method 2 — webOS CLI
+
+Use this method if you already have the webOS CLI installed and `YOUR_TV` configured as a target device:
 
 ```sh
 ares-install -d YOUR_TV com.github.depius.uxair_1.0.0_arm.ipk
 ares-launch -d YOUR_TV com.github.depius.uxair
 ```
 
-Open UxAir, select it from Screen Mirroring on the sender, and enter the large on-screen PIN when prompted. For music, select UxAir as the sender's AirPlay audio output. Pairing, receiver identity, and settings are private to the app ID.
+Open UxAir, select it from Screen Mirroring, and enter the pairing PIN when prompted. Pairing credentials and settings are private to the UxAir app ID.
 
 ### Migrating from UxPlay webOS development builds
 
@@ -62,7 +82,9 @@ UxAir uses the new ID `com.github.depius.uxair`. It installs alongside the exist
 
 ## Build from source
 
-`packaging/appinfo.json` holds the app identity and version. Inputs and their checksums are pinned in `dependencies.lock.json`. Follow [the development environment guide](docs/DEVELOPMENT.md) and use a supported macOS ARM64 host with the webOS CLI for the target build.
+UxAir is primarily written in C++. ARMv7 IPK builds require a compatible cross-compilation environment. The verified target-build path uses Apple Silicon macOS with the pinned webOS toolchain and webOS CLI. Native regression tests can also run on Ubuntu Linux with the development dependencies listed in [the full development guide](docs/DEVELOPMENT.md).
+
+The following commands are for a prepared environment with the required platform-specific dependencies; they are not expected to work on every operating system without setup:
 
 ```sh
 python3 tools/validate-metadata.py
@@ -72,7 +94,7 @@ python3 tools/validate-ipk.py
 tools/source-package.py
 ```
 
-The build verifies ARM32 soft-float ABI and GLIBC compatibility. The source archive contains this application source, the pinned UxPlay source, dependency archives, notices, and build instructions. CI validation does not replace physical TV testing.
+The development guide documents the pinned toolchain, ARM32 soft-float ABI, GLIBC compatibility, ELF validation, source packaging, reproducibility, and GPL corresponding-source obligations. The source archive includes the exact application source and pinned upstream/dependency sources. CI validation does not replace physical TV testing.
 
 ## Known limitations and troubleshooting
 

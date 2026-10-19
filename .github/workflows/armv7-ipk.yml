@@ -3,17 +3,7 @@ name: Build UxAir 1.0.0 Release Candidate ARMv7
 on:
   push:
     branches:
-      - feature/b7-optimization
-      - codex/milestones-6-2-6-4
-      - codex/milestone-7-hevc-hdr-ui
-      - codex/milestone-7-1-hevc-selection
-      - codex/milestone-8-hdr-4k-optimization
-      - codex/milestone-9-60fps-version-1
-      - codex/uxair-1.0.0-final-development
-      - codex/uxair-1.0.0-rc3-ui-finalization
-      - codex/uxair-1.0.0-rc4-pairing-freeze
-      - codex/uxair-1.0.0-rc5-starfish-regression
-      - codex/uxair-final-ui-branding
+      - main
   pull_request:
     branches:
       - main
@@ -24,7 +14,6 @@ permissions:
 
 jobs:
   native-tests:
-    if: github.event_name != 'pull_request' || github.head_ref == 'codex/uxair-final-ui-branding'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -40,7 +29,6 @@ jobs:
           python3 tools/validate-metadata.py
           tools/test.sh
   build-ipk:
-    if: github.event_name != 'pull_request' || github.head_ref == 'codex/uxair-final-ui-branding'
     needs: native-tests
     runs-on: macos-15
     timeout-minutes: 180

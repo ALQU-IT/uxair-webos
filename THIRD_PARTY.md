@@ -1,6 +1,15 @@
-# Third-party components
+# UxAir third-party components and attribution
 
-UxPlay webOS is GPL-3.0-or-later. The exact source revisions and archive checksums are in `dependencies.lock.json`.
+UxAir is distributed under GPL-3.0-or-later. It is an adaptation of UxPlay and the existing webOS port, not a clean-room or from-scratch receiver. Exact source revisions and archive checksums are in `dependencies.lock.json`.
+
+## Project credits
+
+- UxAir development and adaptation: Matej Skuhala / [@depius](https://github.com/depius).
+- Original UxPlay AirPlay/RAOP project: FDH2 / [FDH2/UxPlay](https://github.com/FDH2/UxPlay).
+- Original webOS port and prior project maintenance: Daniel Filho / [@danlflh](https://github.com/danlflh).
+- The pinned UxPlay core is built from its recorded upstream revision. UxAir supplies the webOS Starfish/ACB integration, settings, UI, diagnostics, packaging, and focused instrumentation; `tools/instrument-uxplay.py` applies bounded development diagnostics patches to generated upstream source when that build mode is selected.
+
+These credits are consistent with the repository history (the current adaptation history is authored by the `depius` account) and the existing port notices. Original copyright and license files remain in place.
 
 | Component | Use | License |
 | --- | --- | --- |
@@ -15,4 +24,4 @@ The build uses GCC, an eligible compilation process for the Runtime Library Exce
 
 The webOS Brew native toolchain and samples provide the build environment, headers, link stubs, and technical reference for the port; the samples are not bundled. The native backend was also informed by `mariotaku/ss4s` PCM payload documentation. SDL2, SDL2_ttf, LG fonts, glibc, Starfish Media Pipeline, and ACB are supplied by the TV and are not redistributed.
 
-Daniel Filho ([@danlflh](https://github.com/danlflh)) is the author and maintainer of this webOS port. Run `tools/source-package.py` to create a corresponding-source archive containing this application's source, the pinned UxPlay core, the original dependency source archives, and build instructions. All static libraries can be rebuilt and the app relinked using `tools/build.sh`; installing the resulting `.ipk` on the rooted target uses `tools/tv.sh install`.
+Daniel Filho ([@danlflh](https://github.com/danlflh)) created the original webOS port. UxAir is maintained and adapted by Matej Skuhala ([@depius](https://github.com/depius)). Run `tools/source-package.py` to create a corresponding-source archive containing this application's source, the pinned UxPlay core, the original dependency source archives, and build instructions. All static libraries can be rebuilt and the app relinked using `tools/build.sh`; installing the resulting `.ipk` on the rooted target uses `tools/tv.sh install`.

@@ -20,16 +20,21 @@ def version(v):
 
 def main():
     stage = pathlib.Path(sys.argv[1])
-    files = [stage / 'uxplay-webos', stage / 'lib/libstdc++.so.6']
+    binary = sys.argv[2] if len(sys.argv) > 2 else 'uxair'
+    if binary not in ('uxair', 'hevc-probe'):
+        sys.exit('Unsupported binary name')
+    files = [stage / binary, stage / 'lib/libstdc++.so.6']
     exported = output('-V', files[1]).split('Version needs section')[0]
+    max_glibc = (0, 0)
     for file in files:
         header = output('-h', file)
-        if 'ELF32' not in header or 'ARM' not in header or 'hard-float ABI' in header:
+        if 'ELF32' not in header or not re.search(r'Machine:\s+ARM\b', header) or 'soft-float ABI' not in header:
             sys.exit(f'Wrong target ABI: {file}')
         versions = output('-V',file).split('Version needs section')[-1]
         for v in re.findall(r'Name: GLIBC_(\d+(?:\.\d+)+)', versions):
             if version(v)>version('2.19'):
                 sys.exit(f'{file}: requires GLIBC_{v}, newer than TV 2.19')
+            max_glibc = max(max_glibc, version(v))
         for name in re.findall(r'Name: ((?:GLIBCXX|CXXABI)[_A-Z.0-9]+)',versions):
             if name not in exported:
                 sys.exit(f'{file}: bundled C++ runtime lacks {name}')
@@ -39,7 +44,7 @@ def main():
     for bad in ['libcrypto.so', 'libplist', 'libavcodec', 'libgstreamer', 'libX11']:
         if bad in dynamic:
             sys.exit(f'Unexpected dynamic dependency: {bad}')
-    print('ELF preflight: ARM32 soft-float ABI; glibc <= 2.19; private C++ runtime resolves version requirements.')
+    print(f'ELF preflight: ARM ELF32 soft-float ABI; max required GLIBC_{".".join(map(str, max_glibc))} <= 2.19; private C++ runtime resolves version requirements.')
 
 if __name__ == '__main__':
     main()

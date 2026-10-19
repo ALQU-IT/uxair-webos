@@ -24,8 +24,8 @@ shutil.copy('packaging/icon.png','build/probe/icon.png')
 shutil.copy('build/media-probe','build/probe/media-probe')
 app=json.loads(Path('packaging/appinfo.json').read_text())
 Path('build/probe/appinfo.json').write_text(json.dumps(dict(
-    id=app['id']+'.probe',version=app['version'],vendor='UxPlay webOS',type='native',
-    main='media-probe',title='UxPlay webOS Probe',icon='icon.png',requiredMemory=64)))
+    id=app['id']+'.probe',version=app['version'],vendor='UxAir',type='native',
+    main='media-probe',title='UxAir Probe',icon='icon.png',requiredMemory=64)))
 PY
 ares-package build/probe -o dist
 app_id="$(python3 -c 'import json;print(json.load(open("packaging/appinfo.json"))["id"])')"

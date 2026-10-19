@@ -11,12 +11,18 @@ static std::vector<uint8_t> file(const char *name) {
     assert(f.good());return std::vector<uint8_t>(std::istreambuf_iterator<char>(f),{});
 }
 int main(int argc,char **argv) {
-    assert(argc==4);
+    assert(argc==7);
     auto landscape=file(argv[1]);auto portrait=file(argv[2]);
     auto a=inspect_h264(landscape.data(),landscape.size());
     assert(a.valid&&a.keyframe&&a.picture&&a.width==1280&&a.height==720&&!a.configuration.empty());
     auto b=inspect_h264(portrait.data(),portrait.size());
     assert(b.valid&&b.width==720&&b.height==1280);
+    auto full_hd=file(argv[4]),full_hd_portrait=file(argv[5]),unsupported=file(argv[6]);
+    auto c=inspect_h264(full_hd.data(),full_hd.size());
+    auto d=inspect_h264(full_hd_portrait.data(),full_hd_portrait.size());
+    assert(c.valid&&c.width==1920&&c.height==1080);
+    assert(d.valid&&d.width==1080&&d.height==1920);
+    assert(!inspect_h264(unsupported.data(),unsupported.size()).valid);
     assert(!inspect_h264(nullptr,0).valid);
     uint8_t broken[]={0,0,0,1,0x67,0xff};assert(!inspect_h264(broken,sizeof(broken)).valid);
     // Truncated SPS and malformed network data must never read outside the packet.
@@ -43,5 +49,5 @@ int main(int argc,char **argv) {
     }
     assert(total>=44100&&total<47000&&packets>40);
     decoder.reset();
-    printf("PASS: H.264 landscape/portrait, malformed/truncated input (10k cases), PCM validation, AAC-LC -> stereo PCM (%zu samples)\n",total);
+    printf("PASS: H.264 720p/1080p landscape/portrait, unsupported/malformed input, PCM and AAC-LC (%zu samples)\n",total);
 }

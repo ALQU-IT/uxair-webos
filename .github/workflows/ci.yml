@@ -4,13 +4,21 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   host-tests:
-    runs-on: macos-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - name: Install host test dependency
-        run: brew install ffmpeg
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential ffmpeg pkg-config libsdl2-dev libavcodec-dev libavutil-dev libswresample-dev
       - name: Validate release metadata and documentation
         run: python3 tools/validate-metadata.py
       - name: Run sanitizer-backed host tests

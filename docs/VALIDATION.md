@@ -1,5 +1,7 @@
 # UxPlay webOS validation on LJ600B
 
+For the separate LG OLED B7 / Rockhopper 3.9.0 observations and frame pacing results, see [Milestone 2](MILESTONE2.md). The owner confirmed the development IPK works for discovery, Screen Mirroring, photos, video, and audio, and reported stable Milestone 2 functionality with minor judder comparable to the original receiver. Milestone 3 settings and diagnostics still require a B7 run.
+
 Hardware inspection and tests started 2026-09-06. This record distinguishes user-observed playback from protocol/log checks.
 
 ## Target and environment
@@ -32,6 +34,8 @@ Hardware inspection and tests started 2026-09-06. This record distinguishes user
 | TV dynamic loader | All reported libraries resolved; private libstdc++ was loaded from the app directory |
 
 `FRAMEREADY` callbacks are throttled by the platform and are not a per-frame FPS counter. Use the decoder's throughput logs or an external recording for actual frame rate.
+
+The receiver emits five-second `[video]`, `[pipeline]`, `[audio]`, and `[health]` samples to `uxplay.log`. `[video]` reports the advertised maximum, incoming H.264/HEVC access-unit rate, PTS cadence and interval min/average/max (intervals over two seconds are excluded as clock discontinuities), accepted Starfish Feed rate, and `FRAMEREADY` callbacks/s. Firmware may throttle `FRAMEREADY`; it is not displayed FPS. Pipeline retry counts are per sample; queue drops and high-water marks are cumulative for the process. RSS is read from `/proc/self/status` and is `-1` if unavailable. Audio decode times are sampled around the FFmpeg decode call and do not include Starfish audio output.
 
 ## In progress / not yet certified
 

@@ -67,7 +67,7 @@ size_t prefix(const uint8_t *p,size_t n,size_t i) {
 }
 }
 H264Info inspect_h264(const uint8_t *p,size_t n) {
-    H264Info info;if(!p||n<5||n>1048576||!prefix(p,n,0))return info;
+    H264Info info;if(!p||n<5||n>2*1024*1024||!prefix(p,n,0))return info;
     size_t pos=0;
     while(pos<n) {
         size_t len=prefix(p,n,pos);if(!len||pos+len>=n)return H264Info{};

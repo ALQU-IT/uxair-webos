@@ -11,7 +11,7 @@ static bool read_frame(FILE *f, std::vector<unsigned char>& bytes) {
 }
 int main() {
     start_log("probe.log");
-    const char *id = getenv("APPID"); if (!id) id = "com.github.danlflh.uxplaywebos.probe";
+    const char *id = getenv("APPID"); if (!id) id = "com.github.depius.uxair.probe";
     Shell shell;
     if (!shell.open()) return 1;
     shell.transparent();

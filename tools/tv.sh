@@ -8,6 +8,8 @@ ssh_options=(-i "$tv_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o Conne
 app_id="$(python3 -c 'import json;print(json.load(open("packaging/appinfo.json"))["id"])')"
 app_dir="/media/developer/apps/usr/palm/applications/$app_id"
 app_jail_dir="/var/palm/jail/$app_id$app_dir"
+dev_id="$app_id.dev"
+dev_jail_dir="/var/palm/jail/$dev_id/media/developer/apps/usr/palm/applications/$dev_id"
 require_device() { [ -n "$tv_device" ] || { echo 'TV_DEVICE is required (configured ares device name).' >&2; exit 2; }; }
 require_ssh() { [ -n "$tv_host" ] && [ -n "$tv_key" ] || { echo 'TV_HOST and TV_KEY are required for direct SSH actions.' >&2; exit 2; }; }
 case "${1:-}" in
@@ -23,24 +25,31 @@ case "${1:-}" in
     require_device; require_ssh
     # Atomic replacement avoids ETXTBSY and preserves on-device pairing state.
     python3 tools/package.py
-    scp "${ssh_options[@]}" build/app/uxplay-webos "root@$tv_host:$app_dir/uxplay-webos.next"
+    scp "${ssh_options[@]}" build/app/uxair "root@$tv_host:$app_dir/uxair.next"
     ares-launch -d "$tv_device" -c "$app_id"
-    ssh -tt "${ssh_options[@]}" "root@$tv_host" "chmod 755 '$app_dir/uxplay-webos.next' && mv '$app_dir/uxplay-webos.next' '$app_dir/uxplay-webos'"
+    ssh -tt "${ssh_options[@]}" "root@$tv_host" "chmod 755 '$app_dir/uxair.next' && mv '$app_dir/uxair.next' '$app_dir/uxair'"
     ares-launch -d "$tv_device" "$app_id"
     ;;
   logs)
     require_ssh
     mkdir -p build/logs
-    ssh -tt "${ssh_options[@]}" "root@$tv_host" "cat '$app_jail_dir/uxplay.log'" > build/logs/tv-latest.log
+    ssh -tt "${ssh_options[@]}" "root@$tv_host" "cat '$app_jail_dir/uxair.log'" > build/logs/tv-latest.log
     echo "build/logs/tv-latest.log"
+    ;;
+  direct-probe-logs)
+    require_ssh
+    mkdir -p build/logs
+    # Export only fixed-vocabulary probe records from the development app.
+    ssh -T "${ssh_options[@]}" "root@$tv_host" "grep '^\[direct-probe\]' '$dev_jail_dir/uxair.log' || true" > build/logs/direct-probe.log
+    echo "build/logs/direct-probe.log"
     ;;
   status)
     require_ssh
-    ssh -tt "${ssh_options[@]}" "root@$tv_host" "ps -ef | grep '[u]xplay-webos'; tail -n 8 '$app_jail_dir/uxplay.log'"
+    ssh -tt "${ssh_options[@]}" "root@$tv_host" "ps -ef | grep '[u]xair'; tail -n 8 '$app_jail_dir/uxair.log'"
     ;;
   loader-check)
     require_ssh
-    ssh -tt "${ssh_options[@]}" "root@$tv_host" "LD_TRACE_LOADED_OBJECTS=1 LD_BIND_NOW=1 '$app_dir/uxplay-webos'"
+    ssh -tt "${ssh_options[@]}" "root@$tv_host" "LD_TRACE_LOADED_OBJECTS=1 LD_BIND_NOW=1 '$app_dir/uxair'"
     ;;
-  *) echo 'Usage: tools/tv.sh install|launch|close|update-binary|logs|status|loader-check' >&2; exit 2 ;;
+  *) echo 'Usage: tools/tv.sh install|launch|close|update-binary|logs|direct-probe-logs|status|loader-check' >&2; exit 2 ;;
 esac

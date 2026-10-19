@@ -7,7 +7,7 @@ UxAir is a native AirPlay mirroring receiver for compatible rooted LG webOS TVs,
 
 ## Status
 
-UxAir 1.0.0 is prepared as a release candidate. Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
+UxAir 1.0.0 is publicly released. Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
 
 ## Features
 
@@ -43,7 +43,7 @@ The iPhone, iPad, or Mac selects the actual AirPlay codec and rate. Selecting HE
 
 ### Download UxAir
 
-Check the [UxAir GitHub Releases](https://github.com/depius/uxair-webos/releases) page for a published release and download the latest `.ipk` from its release assets. **An official UxAir 1.0.0 release has not been published yet.** The current release-candidate IPK, when available, is distributed as a [GitHub Actions artifact](https://github.com/depius/uxair-webos/actions/workflows/armv7-ipk.yml), not as a public release.
+**UxAir 1.0.0 is officially released.** Download the ARMv7 installer directly: **[Download UxAir 1.0.0 (.ipk)](https://github.com/depius/uxair-webos/releases/download/v1.0.0/com.github.depius.uxair_1.0.0_arm.ipk)**. For release notes, source code and SHA-256 checksums, see the [UxAir 1.0.0 release page](https://github.com/depius/uxair-webos/releases/tag/v1.0.0).
 
 Install UxAir on a compatible rooted LG webOS TV with native app installation enabled. Keep the TV and Apple device on the same local network with multicast/mDNS discovery available.
 
@@ -72,7 +72,7 @@ Open UxAir, select it from Screen Mirroring, and enter the pairing PIN when prom
 
 ### Migrating from UxPlay webOS development builds
 
-UxAir uses the new ID `com.github.depius.uxair`. It installs alongside the existing UxPlay webOS development app and does not overwrite or uninstall it. The new ID has separate pairing keys, receiver identity, and settings; you will pair again and configure UxAir separately. Keep the old development app installed until the UxAir candidate has passed your hardware checks. No state is migrated or removed automatically.
+UxAir uses the new ID `com.github.depius.uxair`. It installs alongside the existing UxPlay webOS development app and does not overwrite or uninstall it. The new ID has separate pairing keys, receiver identity, and settings; you will pair again and configure UxAir separately. You may keep the old development app installed while verifying UxAir on your own TV. No state is migrated or removed automatically.
 
 ## Remote and configuration
 

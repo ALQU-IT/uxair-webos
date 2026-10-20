@@ -91,8 +91,8 @@ def main():
     text = '\n'.join(p.read_text() for p in tracked_sources)
     if 'org.webosbrew.uxplaylg' in text or 'UxPlay LG' in text:
         fail('legacy identity remains in application source')
-    if 'Daniel Filho' in (ROOT / 'src/main.cpp').read_text():
-        fail('personal name must not appear in application UI; use the upstream handle')
+    if 'Daniel Filho (@danlflh)' not in (ROOT / 'src/main.cpp').read_text():
+        fail('About page must preserve the requested uxplay-webOS upstream attribution')
     for size, path in [(80, ROOT / 'packaging/icon.png'), (130, ROOT / 'packaging/largeIcon.png'), (256, ROOT / 'assets/uxair-icon-256.png'), (512, ROOT / 'assets/uxair-icon-512.png')]:
         if not path.is_file():
             fail(f'missing {size}px UxAir icon asset')

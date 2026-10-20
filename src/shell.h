@@ -12,6 +12,12 @@ struct UiRow {
     UiRow(const std::string& l,const std::string& v,const std::string& n,bool e=true)
         : label(l),value(v),note(n),enabled(e) {}
 };
+struct UiHistoryBar { std::string label; uint64_t mirror_ms=0,audio_ms=0; bool available=false; };
+struct UiHistoryData {
+    std::string period,summary,total_time,average,mirror_time,music_time,storage;
+    std::vector<UiHistoryBar> bars;
+    size_t session_count=0; bool empty=true;
+};
 struct UiDialog {
     std::string title, description;
     std::vector<std::string> choices;
@@ -31,11 +37,11 @@ public:
     bool pump();
     Action action();
     bool pointer_select(int& x, int& y) const;
-    UiHit hit_test(int x, int y, int row_count, const UiDialog *dialog = nullptr) const;
+    UiHit hit_test(int x, int y, int row_count, const UiDialog *dialog = nullptr, int selected = 0, UiPage page = UiPage::Mirroring) const;
     void screen(const std::string& status, const std::string& pin, int audio_delay_ms=100);
     void page(UiPage page, const std::string& subtitle, const std::vector<UiRow>& rows, int selected,
               const std::string& footer, const UiDialog *dialog = nullptr,
-              const std::string& pin = std::string(), bool donation_open = false);
+              const std::string& pin = std::string(), bool donation_open = false, const UiHistoryData *history = nullptr);
     void overlay(const std::vector<std::string>& lines, const std::string& pin = std::string());
     void transparent();
     ~Shell();
@@ -47,6 +53,7 @@ private:
     SDL_Texture *donation_qr_=nullptr;
     void text(const std::string&,int y,_TTF_Font*,SDL_Color);
     void text_at(const std::string&,int x,int y,int max_width,_TTF_Font*,SDL_Color);
+    void draw_history(const UiHistoryData&,const std::vector<UiRow>&,int,int,int,int);
     void draw_donation_modal(int w, int h);
     void draw_pairing_modal(const std::string& pin, int w, int h);
 };

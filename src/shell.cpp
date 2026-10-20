@@ -130,7 +130,7 @@ static int dialog_first(const UiDialog& dialog) {
     int count=int(dialog.choices.size()),visible=std::min(5,count);
     return std::max(0,std::min(dialog.selected-2,count-visible));
 }
-UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog) const {
+UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog, int selected, UiPage page_id) const {
     int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
     if(dialog) {
         int visible=std::min(5,int(dialog->choices.size()));
@@ -143,8 +143,21 @@ UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog) const
     int top=h/4,row_height=std::max(66,h/11),sidebar=w/4;
     if(x>=0 && x<sidebar && y>=top && y<top+5*row_height)
         return {UiHitKind::Category,(y-top)/row_height};
-    if(x>=sidebar+24 && x<w-24 && y>=top && y<top+std::min(row_count,7)*row_height)
-        return {UiHitKind::Row,(y-top)/row_height};
+    if(x>=sidebar+24 && x<w-24) {
+        if(page_id==UiPage::History) {
+            if(y>=top+218&&y<top+270)return {UiHitKind::Row,0};
+            const int list_top=h*70/100,list_height=std::min(5,std::max(0,row_count-2))*43;
+            if(y>=list_top&&y<list_top+list_height) {
+                int count=std::max(0,row_count-2),visible=std::min(5,count),first=visible_row_first(std::max(0,selected-1),count,visible);
+                int row=(y-list_top)/43;
+                if(first+row<count)return {UiHitKind::Row,first+row+1};
+            }
+            if(y>=h*91/100)return {UiHitKind::Row,row_count-1};
+            return {};
+        }
+        int visible=std::min(row_count,7),first=visible_row_first(selected,row_count,visible);
+        if(y>=top && y<top+visible*row_height) return {UiHitKind::Row,first+(y-top)/row_height};
+    }
     return {};
 }
 bool Shell::pump() {Action a=action();return a!=Action::Back&&a!=Action::Exit;}
@@ -166,7 +179,58 @@ void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *fon
     if(texture) { SDL_RenderCopy(renderer,texture,&source,&rect); SDL_DestroyTexture(texture); }
     SDL_FreeSurface(surface);
 }
-void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer,const UiDialog *dialog,const std::string& pin,bool donation_open) {
+void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& rows,int selected,int panel,int w,int h) {
+    const int content=w-panel-36,top=h/4;
+    auto card=[&](int x,int y,int cw,const char *label,const std::string& value) {
+        SDL_Rect r={x,y,cw,92};fill_round_rect(renderer,r,12,uxair_navy);
+        text_at(label,x+18,y+10,cw-36,small_,{157,184,201,255});
+        text_at(value,x+18,y+42,cw-36,font_,uxair_text);
+    };
+    const int third=(content-32)/3;
+    card(panel,top,third,"SESSIONS",data.summary);
+    card(panel+third+16,top,third,"TOTAL PLAYBACK",data.total_time);
+    card(panel+2*(third+16),top,third,"AVERAGE SESSION",data.average);
+    card(panel,top+104,content/2-8,"SCREEN MIRRORING - PERIOD",data.mirror_time);
+    card(panel+content/2+8,top+104,content/2-8,"AIRPLAY MUSIC - PERIOD",data.music_time);
+    const int chart_x=panel,chart_y=top+218,chart_w=content,chart_h=170;
+    SDL_Rect chart={chart_x,chart_y,chart_w,chart_h};fill_round_rect(renderer,chart,12,{25,39,61,255});
+    text_at("Playback time",chart_x+18,chart_y+10,chart_w/2,small_,uxair_text);
+    text_at(data.period,chart_x+chart_w/2,chart_y+10,chart_w/2-18,small_,uxair_accent);
+    uint64_t maximum=0;for(const auto& b:data.bars)if(b.available)maximum=std::max(maximum,b.mirror_ms+b.audio_ms);
+    int n=int(data.bars.size()),gap=n>18?3:8,inner_x=chart_x+22,inner_y=chart_y+48,inner_w=chart_w-44,base=chart_y+chart_h-30;
+    int bw=n?std::max(3,(inner_w-gap*std::max(0,n-1))/n):3;
+    for(int i=0;i<n;++i) {
+        const auto& b=data.bars[size_t(i)];int x=inner_x+i*(bw+gap);
+        if(!b.available) {SDL_SetRenderDrawColor(renderer,65,77,91,255);SDL_Rect empty={x,base-3,bw,3};SDL_RenderFillRect(renderer,&empty);continue;}
+        uint64_t total=b.mirror_ms+b.audio_ms;int bar_h=maximum?int((chart_h-88)*double(total)/maximum):0;
+        if(total==0){SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect zero={x,base-3,bw,3};SDL_RenderFillRect(renderer,&zero);continue;}
+        int mirror_h=total?int(bar_h*double(b.mirror_ms)/total):0,audio_h=bar_h-mirror_h;
+        SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect mirror={x,base-mirror_h,bw,mirror_h};if(mirror_h)SDL_RenderFillRect(renderer,&mirror);
+        SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect audio={x,base-bar_h,bw,audio_h};if(audio_h)SDL_RenderFillRect(renderer,&audio);
+        if(n<=12||(n==30&&i%5==0))text_at(b.label,x-4,base+3,bw+8,small_,{171,190,204,255});
+    }
+    const int dist_y=top+385,dist_h=30;uint64_t mirror=0,audio=0;
+    for(const auto& b:data.bars)if(b.available){mirror+=b.mirror_ms;audio+=b.audio_ms;}
+    text_at("Screen mirroring",panel,dist_y,content/3,small_,uxair_text);
+    text_at("AirPlay music",panel+content/3,dist_y,content/3,small_,{145,211,181,255});
+    uint64_t total=mirror+audio;char pct[64];snprintf(pct,sizeof(pct),"%llu%% / %llu%%",(unsigned long long)(total?double(mirror)*100.0/double(total):0),(unsigned long long)(total?double(audio)*100.0/double(total):0));
+    text_at(pct,panel+2*content/3,dist_y,content/3,small_,uxair_text);
+    SDL_Rect track={panel,dist_y+30,content,dist_h};SDL_SetRenderDrawColor(renderer,47,65,85,255);SDL_RenderFillRect(renderer,&track);
+    int mw=total?int(content*double(mirror)/total):0;SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect m={panel,dist_y+30,mw,dist_h};if(mw)SDL_RenderFillRect(renderer,&m);
+    SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect a={panel+mw,dist_y+30,content-mw,dist_h};if(total&&a.w)SDL_RenderFillRect(renderer,&a);
+    int list_y=h*70/100; text_at("Recent sessions",panel,list_y-34,content/2,font_,uxair_text);
+    const int count=std::max(0,int(rows.size())-2),visible=std::min(5,count),first=visible_row_first(std::max(0,selected-1),count,visible);
+    for(int i=0;i<visible;++i){int row=first+i,idx=row+1,y=list_y+i*43;
+        if(selected==idx){SDL_Rect f={panel-5,y-2,content,45};SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&f);}
+        const auto& r=rows[size_t(idx)];text_at(r.label,panel+10,y,content/3,small_,uxair_text);text_at(r.value,panel+content/3,y,content/5,small_,uxair_accent);text_at(r.note,panel+content*53/100,y,content*46/100,small_,{174,194,207,255});
+    }
+    if(count==0)text_at("No playback history yet.",panel+10,list_y+5,content-20,font_,{174,194,207,255});
+    int reset_index=int(rows.size())-1,reset_y=h*91/100;
+    SDL_Rect reset={panel-5,reset_y-4,content,42};if(selected==reset_index){SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&reset);}
+    text_at("Reset history",panel+10,reset_y,content/2,small_,selected==reset_index?uxair_accent:uxair_text);
+    text_at(data.storage,panel+content/2,reset_y,content/2,small_,{151,178,194,255});
+}
+void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer,const UiDialog *dialog,const std::string& pin,bool donation_open,const UiHistoryData *history) {
     int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
     SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(renderer,uxair_background.r,uxair_background.g,uxair_background.b,255);SDL_RenderClear(renderer);
@@ -175,17 +239,17 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
     SDL_SetRenderDrawColor(renderer,uxair_navy.r,uxair_navy.g,uxair_navy.b,255);SDL_RenderFillRect(renderer,&side);
     SDL_Rect accent={0,0,w,7};
     SDL_SetRenderDrawColor(renderer,uxair_accent.r,uxair_accent.g,uxair_accent.b,255);SDL_RenderFillRect(renderer,&accent);
-    const char *categories[]={"Video","Audio","Diagnostics","About"};
-    const char *titles[]={"Video","Audio","Diagnostics","About","Recent Sessions"};
+    const char *categories[]={"Video","Audio","History","Diagnostics","About"};
+    const char *titles[]={"Video","Audio","History","Diagnostics","About"};
     int index=int(page_id);if(index<0||index>4)index=0;
-    int category=index==4?2:index;
+    int category=index;
     text_at("UxAir",w/28,h/18,sidebar-40,large_,uxair_accent);
     text_at("AirPlay Receiver",w/28,h/8,sidebar-40,small_,{154,185,202,255});
     text_at(titles[index],panel,h/20,w-panel-35,large_,{239,247,249,255});
     text_at(subtitle,panel,h/7,w-panel-35,font_,{154,185,202,255});
     const int top=h/4;
     const int row_height=std::max(66,h/11);
-    for(int i=0;i<4;++i) {
+    for(int i=0;i<5;++i) {
         int y=top+i*row_height;
         if(i==category) {
             SDL_Rect tab={14,y-5,sidebar-28,row_height-6};
@@ -195,8 +259,13 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
         }
         text_at(categories[i],30,y+12,sidebar-52,font_,i==category?SDL_Color{238,249,247,255}:SDL_Color{150,175,190,255});
     }
-    for(size_t i=0;i<rows.size() && i<7;++i) {
-        int y=top+int(i)*row_height;
+    if(page_id==UiPage::History && history) {
+        draw_history(*history,rows,selected,panel,w,h);
+    } else {
+        const size_t visible_rows=std::min<size_t>(rows.size(),7);
+        const int first_row=visible_row_first(selected,int(rows.size()),int(visible_rows));
+        for(size_t slot=0;slot<visible_rows;++slot) {
+        size_t i=size_t(first_row)+slot;int y=top+int(slot)*row_height;
         if(int(i)==selected) {
             SDL_Rect focus={panel-8,y-6,w-panel-24,row_height-5};
             SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&focus);
@@ -207,6 +276,7 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
         text_at(rows[i].label,panel+18,y+4,(w-panel)*56/100,font_,primary);
         if(!rows[i].value.empty())text_at(rows[i].value,panel+(w-panel)*65/100,y+4,(w-panel)*30/100,font_,int(i)==selected?uxair_accent:primary);
         if(!rows[i].note.empty())text_at(rows[i].note,panel+18,y+43,w-panel-60,small_,{151,178,194,255});
+        }
     }
     text_at(footer,panel,h-54,w-panel-35,small_,{152,180,194,255});
     if(dialog) {

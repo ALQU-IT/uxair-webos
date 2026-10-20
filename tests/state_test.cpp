@@ -169,14 +169,14 @@ int main() {
     }
     assert(usage.successful_sessions==18 && usage.mirror_sessions==18);
     assert(usage.audio_sessions==0 && usage.direct_sessions==0);
-    assert(usage.recent.size()==16 && usage.recent.front().started_utc==1700000017);
-    assert(usage.recent.back().started_utc==1700000002);
+    assert(usage.recent.size()==18 && usage.recent.front().started_utc==1700000017);
+    assert(usage.recent.back().started_utc==1700000000);
     assert(usage.packet_drops==1 && usage.video_frame_drops==1 && usage.decoder_errors==1 && usage.session_errors==1);
     assert(save_usage_stats(usage_path,usage));
     UsageStats restored;
     assert(load_usage_stats(usage_path,restored));
     assert(restored.successful_sessions==18 && restored.playback_ms==usage.playback_ms);
-    assert(restored.recent.size()==16 && restored.recent.front().feed_frames==29);
+    assert(restored.recent.size()==18 && restored.recent.front().feed_frames==29);
     restored.reset();assert(save_usage_stats(usage_path,restored));
     UsageStats empty;assert(load_usage_stats(usage_path,empty));
     assert(empty.successful_sessions==0 && empty.recent.empty());

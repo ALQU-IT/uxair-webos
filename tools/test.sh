@@ -19,7 +19,10 @@ if [[ "${1:-}" == "--diagnostics-only" ]]; then
 fi
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/state_test.cpp src/settings.cpp src/usage_stats.cpp -o build/tests/state-test
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/usage_stats_test.cpp src/usage_stats.cpp -o build/tests/usage-stats-test
 build/tests/state-test
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/usage_stats_test.cpp src/usage_stats.cpp -o build/tests/usage-stats-test
+build/tests/usage-stats-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/media_rate_test.cpp src/settings.cpp -o build/tests/media-rate-test
 build/tests/media-rate-test

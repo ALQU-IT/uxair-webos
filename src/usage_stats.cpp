@@ -157,7 +157,7 @@ UsageSummary summarize_usage(const UsageStats& stats,UsagePeriod p,uint32_t toda
     std::vector<std::string> labels(static_cast<size_t>(slots));
     for(int i=0;i<slots;++i) {
         if(monthly) {
-            uint32_t current=month_key(today);int y=int(current/100),m=int(current%100)-1+(i-(slots-1));
+            uint32_t current=month_key(today);int y=int(current/100),m=int(current%100)+(i-(slots-1));
             while(m<1){m+=12;--y;}while(m>12){m-=12;++y;}keys[size_t(i)]=uint32_t(y*100+m);
             if(!month_first_day(keys[size_t(i)],month_starts[size_t(i)],labels[size_t(i)]))labels[size_t(i)]="?";
         } else {

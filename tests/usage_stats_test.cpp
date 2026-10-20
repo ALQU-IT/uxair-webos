@@ -47,7 +47,7 @@ int main() {
     DailyUsage leap_record;leap_record.utc_day=leap_day;leap_record.mirror_ms=86400000;leap.daily.push_back(leap_record);
     UsageSummary leap_month=summarize_usage(leap,UsagePeriod::Months12,usage_utc_day(1709251200)); // 2024-03-01
     bool found_february=false;for(const auto& bar:leap_month.bars)if(bar.label=="Feb"){found_february=true;assert(bar.available&&bar.mirror_ms==86400000);}
-    assert(found_february);
+    assert(found_february&&leap_month.bars.back().label=="Mar");
     UsageSummary leap_week=summarize_usage(leap,UsagePeriod::Days7,usage_utc_day(1709251200));
     assert(leap_week.bars.back().available&&leap_week.bars.back().mirror_ms==0); // zero-use current day is distinct from unavailable dates
 

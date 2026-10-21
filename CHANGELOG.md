@@ -4,7 +4,22 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - Release candidate
+## [1.1.0] - Pending publication
+
+### Added
+
+- Dedicated History page with calendar-month and calendar-year playback charts, playback distribution, recent sessions, storage reporting and confirmed reset.
+- Bounded usage history with a 64 KiB storage limit, up to 100 recent sessions and 365 days of aggregates; backward-compatible V1 history migration.
+- Bundled Buy Me a Coffee icon on About.
+
+### Changed
+
+- Simplified Video and Audio menus and consolidated technical information in Diagnostics.
+- New installations default to H.264 at 1080p/30 FPS, retaining valid saved preferences on upgrade.
+- Calendar-based chart labels, readable duration units, clipping and TV-safe spacing.
+- About identifies Matej Skuhala (@depius), while preserving UxPlay and uxplay-webOS upstream credits.
+
+## [1.0.0] - 2026-10-20
 
 ### Added
 

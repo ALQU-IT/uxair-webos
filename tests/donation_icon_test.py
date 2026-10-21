@@ -14,5 +14,10 @@ shell = (ROOT / 'src/shell.cpp').read_text()
 assert 'SDL_LoadBMP((app_directory()+"/bmc-icon.bmp").c_str())' in shell
 assert 'SDL_CreateTextureFromSurface(renderer,coffee)' in shell
 assert 'SDL_DestroyTexture(donation_icon_)' in shell
-assert 'SDL_Rect icon={panel+18,y+(row_height-48)/2,48,48}' in shell
-print('PASS: exact supplied square coffee art is preserved and bundled as a 120x120 one-time SDL texture')
+assert 'TTF_SizeUTF8(font_,rows[i].label.c_str(),nullptr,&title_h)' in shell
+assert 'TTF_SizeUTF8(small_,rows[i].note.c_str(),nullptr,&note_h)' in shell
+assert 'icon_size=std::max(48,std::min(68,text_height))' in shell
+assert 'icon_y=text_top+(text_height-icon_size)/2' in shell
+assert 'label_x=donation_row?panel+18+icon_size+16:panel+18' in shell
+assert 'SDL_Rect icon={panel+18,icon_y,icon_size,icon_size}' in shell
+print('PASS: exact supplied square coffee art is preserved and sized from the About text block in one SDL texture')

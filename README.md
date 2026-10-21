@@ -7,7 +7,7 @@ UxAir is a native AirPlay mirroring receiver for compatible rooted LG webOS TVs,
 
 ## Status
 
-UxAir 1.0.0 is publicly released. Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
+UxAir 1.0.0 is publicly released; version 1.1.0 has completed hardware testing and is being prepared for its official release. Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
 
 ## Features
 
@@ -29,9 +29,13 @@ Starting with UxAir 1.1.0, a fresh installation defaults to H.264 at 1920×1080 
 
 ## Screenshots
 
-### Video settings
+### UxAir 1.1 interface
 
-![UxAir video settings on LG webOS](screenshots/uxair-video-settings.png)
+![UxAir promotional image](screenshots/uxair-marketing.png)
+
+![UxAir 1.1 video settings](screenshots/uxair-video.png)
+
+![UxAir 1.1 history dashboard](screenshots/uxair-history.png)
 
 
 ## Hardware and requirements
@@ -78,7 +82,7 @@ UxAir uses the new ID `com.github.depius.uxair`. It installs alongside the exist
 
 ## Remote and configuration
 
-- Left/Right changes the Video, Audio, Diagnostics, and About sections.
+- Left/Right changes the Video, Audio, History, Diagnostics, and About sections.
 - Up/Down focuses rows; OK opens or confirms a choice; Back cancels a dialog or pairing attempt, returns from playback to the UI, or exits from the idle screen.
 - During playback, OK opens diagnostics and Back returns to video.
 - Set audio delay before connecting; positive values delay the TV audio.
@@ -127,4 +131,4 @@ UxAir is free and open source. If you enjoy using it, you can support its develo
 
 https://buymeacoffee.com/depius
 
-Donations are optional and do not unlock features or affect the license. The app displays a bundled offline QR code for the same URL; the owner-provided QR image was not included with the supplied RC2 files, so this candidate uses a deterministic QR generated locally for the confirmed profile.
+Donations are optional and do not unlock features or affect the license. The app displays a bundled offline QR code for the same support URL.

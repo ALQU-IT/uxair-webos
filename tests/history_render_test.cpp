@@ -22,11 +22,11 @@ struct HistoryRenderTest {
         shell.page(UiPage::System,"",rows,3,"Left/Right sections");
         assert(SDL_SaveBMP(surface,"build/tests/history-about.bmp")==0);
     }
-    static void render(Shell& shell,SDL_Surface *surface,bool empty) {
+    static void render(Shell& shell,SDL_Surface *surface,bool empty,uint32_t today=20747) {
         UsageStats stats;stats.daily_from_day=20736; // 2026-10-10 UTC
         if(!empty){DailyUsage d;d.utc_day=20747;d.mirror_ms=100000;d.audio_ms=51000;stats.daily.push_back(d);}
-        auto days=summarize_usage(stats,UsagePeriod::ThisMonth,20747);
-        auto months=summarize_usage(stats,UsagePeriod::ThisYear,20747);
+        auto days=summarize_usage(stats,UsagePeriod::ThisMonth,today);
+        auto months=summarize_usage(stats,UsagePeriod::ThisYear,today);
         assert(days.title=="This month — October 2026");
         UiHistoryData data;data.daily_title=days.title;data.monthly_title=months.title;
         data.daily_bars=days.bars;data.monthly_bars=months.bars;
@@ -51,14 +51,14 @@ struct HistoryRenderTest {
             Uint8 r,g,b;SDL_GetRGB(pixel,surface->format,&r,&g,&b);
             assert(!(r==101&&g==185&&b==246)&&!(r==104&&g==194&&b==157));
         }
-        assert(SDL_SaveBMP(surface,empty?"build/tests/history-empty.bmp":"build/tests/history-five-sessions.bmp")==0);
+        assert(SDL_SaveBMP(surface,today!=20747?"build/tests/history-month-end.bmp":empty?"build/tests/history-empty.bmp":"build/tests/history-five-sessions.bmp")==0);
     }
 };
 int main() {
     assert(SDL_Init(0)==0&&TTF_Init()==0);
     SDL_Surface *surface=SDL_CreateRGBSurfaceWithFormat(0,1920,1080,32,SDL_PIXELFORMAT_ARGB8888);assert(surface);
     {Shell shell;shell.renderer=SDL_CreateSoftwareRenderer(surface);assert(shell.renderer);
-     HistoryRenderTest::fonts(shell);HistoryRenderTest::render(shell,surface,false);HistoryRenderTest::render(shell,surface,true);HistoryRenderTest::about(shell,surface);}
+     HistoryRenderTest::fonts(shell);HistoryRenderTest::render(shell,surface,false);HistoryRenderTest::render(shell,surface,true);HistoryRenderTest::render(shell,surface,false,20756);HistoryRenderTest::about(shell,surface);}
     SDL_FreeSurface(surface);
     puts("PASS: actual SDL History rendering, five-session bounds, clip restoration and header pixels");
 }

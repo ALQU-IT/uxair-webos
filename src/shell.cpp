@@ -248,12 +248,13 @@ void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& row
             if(!monthly&&!b.current&&i!=0&&i!=n-1&&
                ((i>0&&bars[size_t(i-1)].current)||(i+1<n&&bars[size_t(i+1)].current)))continue;
             // Avoid adjacent day 30/31 labels. The final calendar day takes priority.
-            if(!monthly&&i==n-2&&i!=0)continue;
+            if(!monthly&&!b.current&&i==n-2&&i!=0)continue;
             const std::string label=b.label;
             int tw=0;TTF_SizeUTF8(small_,label.c_str(),&tw,nullptr);
             const int center=px+pw*(2*i+1)/(2*n);
             const int tx=std::max(px,std::min(center-tw/2,x+cw-padding-tw));
-            const int label_y=base+7+(monthly?i%2*(text_h+1):0);
+            const bool second_label_row=monthly?i%2!=0:b.current&&(i==1||i==n-2);
+            const int label_y=base+7+(second_label_row?text_h+1:0);
             text_at(label,tx,label_y,x+cw-padding-tx,small_,b.current?uxair_accent:b.future?SDL_Color{116,133,148,255}:SDL_Color{171,190,204,255});
         }
     };

@@ -37,6 +37,7 @@ public:
     bool pump();
     Action action();
     bool pointer_select(int& x, int& y) const;
+    bool take_pointer_motion();
     UiHit hit_test(int x, int y, int row_count, const UiDialog *dialog = nullptr, int selected = 0, UiPage page = UiPage::Mirroring) const;
     void screen(const std::string& status, const std::string& pin, int audio_delay_ms=100);
     void page(UiPage page, const std::string& subtitle, const std::vector<UiRow>& rows, int selected,
@@ -49,8 +50,9 @@ private:
     InputMapper input_{SDL_SCANCODE_UNKNOWN, SDL_SCANCODE_UNKNOWN};
     bool pointer_select_ = false;
     int pointer_x_ = 0, pointer_y_ = 0;
+    bool pointer_valid_=false,pointer_moved_=false;
     _TTF_Font *font_=nullptr, *large_=nullptr, *small_=nullptr, *pin_font_=nullptr, *pin_font_small_=nullptr;
-    SDL_Texture *donation_qr_=nullptr;
+    SDL_Texture *donation_qr_=nullptr,*donation_icon_=nullptr;
     void text(const std::string&,int y,_TTF_Font*,SDL_Color);
     void text_at(const std::string&,int x,int y,int max_width,_TTF_Font*,SDL_Color);
     void draw_history(const UiHistoryData&,const std::vector<UiRow>&,int,int,int,int);

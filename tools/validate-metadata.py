@@ -117,6 +117,14 @@ def main():
         fail('README donation badge must link to the confirmed creator profile')
     if not (ROOT / 'assets/bmc-qr.bmp').is_file():
         fail('missing bundled donation QR bitmap')
+    coffee = ROOT / 'assets/bmc-icon.bmp'
+    if not coffee.is_file():
+        fail('missing SDL-compatible Buy Me a Coffee icon')
+    icon = coffee.read_bytes()
+    if icon[:2] != b'BM' or int.from_bytes(icon[18:22], 'little') != 120 or int.from_bytes(icon[22:26], 'little', signed=True) != 120:
+        fail('Buy Me a Coffee icon must be a square 120x120 SDL bitmap')
+    if not (ROOT / 'assets/bmc-icon-source.png').is_file():
+        fail('missing original supplied Buy Me a Coffee artwork')
     print(f'PASS: {EXPECTED_NAME} {version} metadata is consistent')
 
 if __name__ == '__main__':

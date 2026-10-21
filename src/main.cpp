@@ -286,7 +286,7 @@ int main() {
             rows.push_back(UiRow("UxAir",build_version,"AirPlay Receiver for webOS",false));
             rows.push_back(UiRow("Developer","@depius","UxPlay by FDH2; uxplay-webOS by Daniel Filho (@danlflh)",false));
             rows.push_back(UiRow("License","GPL-3.0-or-later","See bundled license and third-party notices",false));
-            rows.push_back(UiRow("Enjoying the app? Buy me a coffee.","","Optional support · UxAir is free and open source"));
+            rows.push_back(UiRow("Enjoying UxAir? Buy me a coffee","","Support development · UxAir is free and open source"));
         }
         return rows;
     };
@@ -410,6 +410,7 @@ int main() {
         if(previous_loop)loop_gap_time.record(uint64_t(std::max<int64_t>(0,now-previous_loop)));
         previous_loop=now;
         Action action=shell.action();
+        if(shell.take_pointer_motion()&&ui_visible&&page==UiPage::History)last_ui=0;
         if(action==Action::Exit)break;
         std::string pairing_pin=receiver.pin();
         const bool pairing_changed=pairing_pin!=last_rendered_pin;

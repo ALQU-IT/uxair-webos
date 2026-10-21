@@ -37,6 +37,7 @@ c++ -std=c++11 -g -fsanitize=address,undefined -pthread -Isrc \
 build/tests/pairing-registration-test
 python3 tests/pairing_render_test.py
 python3 tests/donation_qr_test.py
+python3 tests/donation_icon_test.py
 python3 tests/pairing_secret_log_test.py
 cc -std=c11 -D_POSIX_C_SOURCE=200809L -g -fsanitize=address,undefined -Isrc \
   tests/direct_request_diag_test.c src/direct_request_diag.c -o build/tests/direct-request-diag-test

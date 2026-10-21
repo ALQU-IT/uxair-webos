@@ -84,6 +84,9 @@ bool Shell::open() {
     SDL_Surface *qr=SDL_LoadBMP((app_directory()+"/bmc-qr.bmp").c_str());
     if(qr) {donation_qr_=SDL_CreateTextureFromSurface(renderer,qr);SDL_FreeSurface(qr);}
     if(!donation_qr_)fprintf(stderr,"[donation] bundled QR image unavailable: %s\n",SDL_GetError());
+    SDL_Surface *coffee=SDL_LoadBMP((app_directory()+"/bmc-icon.bmp").c_str());
+    if(coffee) {donation_icon_=SDL_CreateTextureFromSurface(renderer,coffee);SDL_FreeSurface(coffee);}
+    if(!donation_icon_)fprintf(stderr,"[donation] bundled coffee icon unavailable: %s\n",SDL_GetError());
     return true;
 }
 void Shell::transparent() {
@@ -94,6 +97,7 @@ Action Shell::action() {
     SDL_Event e;
     static Uint32 last_motion_log_ms = 0;
     pointer_select_ = false;
+    auto update_pointer=[&](int x,int y) {if(!pointer_valid_||x!=pointer_x_||y!=pointer_y_)pointer_moved_=true;pointer_x_=x;pointer_y_=y;pointer_valid_=true;};
     while (SDL_PollEvent(&e)) {
         const Uint32 now = SDL_GetTicks();
         if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
@@ -103,19 +107,21 @@ Action Shell::action() {
                         static_cast<long>(e.key.keysym.sym),
                         static_cast<int>(e.key.keysym.scancode), e.key.repeat);
         } else if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
+            update_pointer(e.button.x,e.button.y);
             fprintf(stderr,"[input] mouse %s button=%u clicks=%u x=%d y=%d\n",
                     e.type == SDL_MOUSEBUTTONDOWN ? "down" : "up",
                     e.button.button, e.button.clicks, e.button.x, e.button.y);
         } else if (e.type == SDL_MOUSEMOTION &&
                    (last_motion_log_ms == 0 || Uint32(now - last_motion_log_ms) >= 5000)) {
+            update_pointer(e.motion.x,e.motion.y);
             fprintf(stderr,"[input] pointer motion x=%d y=%d buttons=%u\n",
                     e.motion.x, e.motion.y, e.motion.state);
             last_motion_log_ms = now;
-        }
+        } else if(e.type==SDL_MOUSEMOTION) update_pointer(e.motion.x,e.motion.y);
         const Action mapped = input_.map(e, now);
         if (mapped != Action::None) {
             if (mapped==Action::Select && e.type==SDL_MOUSEBUTTONDOWN) {
-                pointer_select_=true;pointer_x_=e.button.x;pointer_y_=e.button.y;
+                pointer_select_=true;update_pointer(e.button.x,e.button.y);
             }
             return mapped;
         }
@@ -126,6 +132,7 @@ bool Shell::pointer_select(int& x, int& y) const {
     if (!pointer_select_) return false;
     x=pointer_x_;y=pointer_y_;return true;
 }
+bool Shell::take_pointer_motion() {bool moved=pointer_moved_;pointer_moved_=false;return moved;}
 static int dialog_first(const UiDialog& dialog) {
     int count=int(dialog.choices.size()),visible=std::min(5,count);
     return std::max(0,std::min(dialog.selected-2,count-visible));
@@ -145,14 +152,12 @@ UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog, int s
         return {UiHitKind::Category,(y-top)/row_height};
     if(x>=sidebar+24 && x<w-24) {
         if(page_id==UiPage::History) {
-            if(y>=top+218&&y<top+270)return {UiHitKind::Row,0};
-            const int list_top=h*70/100,list_height=std::min(5,std::max(0,row_count-2))*43;
-            if(y>=list_top&&y<list_top+list_height) {
-                int count=std::max(0,row_count-2),visible=std::min(5,count),first=visible_row_first(std::max(0,selected-1),count,visible);
-                int row=(y-list_top)/43;
-                if(first+row<count)return {UiHitKind::Row,first+row+1};
-            }
-            if(y>=h*91/100)return {UiHitKind::Row,row_count-1};
+            const HistoryUiLayout layout=history_ui_layout(w,h);
+            if(history_period_hit(layout,x,y))return {UiHitKind::Row,0};
+            const int count=std::max(0,row_count-2);
+            const int session=history_session_hit(layout,x,y,count,selected);
+            if(session>=0)return {UiHitKind::Row,session};
+            if(history_reset_hit(layout,x,y))return {UiHitKind::Row,row_count-1};
             return {};
         }
         int visible=std::min(row_count,7),first=visible_row_first(selected,row_count,visible);
@@ -180,24 +185,34 @@ void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *fon
     SDL_FreeSurface(surface);
 }
 void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& rows,int selected,int panel,int w,int h) {
-    const int content=w-panel-36,top=h/4;
+    const HistoryUiLayout layout=history_ui_layout(w,h);
+    const int content=w-panel-48,top=h/4,card_gap=16,card_h=84;
     auto card=[&](int x,int y,int cw,const char *label,const std::string& value) {
-        SDL_Rect r={x,y,cw,92};fill_round_rect(renderer,r,12,uxair_navy);
+        SDL_Rect r={x,y,cw,card_h};fill_round_rect(renderer,r,12,uxair_navy);
         text_at(label,x+18,y+10,cw-36,small_,{157,184,201,255});
         text_at(value,x+18,y+42,cw-36,font_,uxair_text);
     };
-    const int third=(content-32)/3;
+    const int third=(content-card_gap*2)/3;
     card(panel,top,third,"SESSIONS",data.summary);
-    card(panel+third+16,top,third,"TOTAL PLAYBACK",data.total_time);
-    card(panel+2*(third+16),top,third,"AVERAGE SESSION",data.average);
-    card(panel,top+104,content/2-8,"SCREEN MIRRORING - PERIOD",data.mirror_time);
-    card(panel+content/2+8,top+104,content/2-8,"AIRPLAY MUSIC - PERIOD",data.music_time);
-    const int chart_x=panel,chart_y=top+218,chart_w=content,chart_h=170;
+    card(panel+third+card_gap,top,third,"TOTAL PLAYBACK",data.total_time);
+    card(panel+2*(third+card_gap),top,third,"AVERAGE SESSION",data.average);
+    card(panel,top+100,content/2-card_gap/2,"SCREEN MIRRORING - PERIOD",data.mirror_time);
+    card(panel+content/2+card_gap/2,top+100,content/2-card_gap/2,"AIRPLAY MUSIC - PERIOD",data.music_time);
+    const int chart_x=panel,chart_y=layout.chart_y,chart_w=content,chart_h=168;
     SDL_Rect chart={chart_x,chart_y,chart_w,chart_h};fill_round_rect(renderer,chart,12,{25,39,61,255});
-    text_at("Playback time",chart_x+18,chart_y+10,chart_w/2,small_,uxair_text);
-    text_at(data.period,chart_x+chart_w/2,chart_y+10,chart_w/2-18,small_,uxair_accent);
+    const int control_w=layout.period_w,control_h=layout.period_h;
+    SDL_Rect period_control={layout.period_x,layout.period_y,control_w,control_h};
+    const bool period_hover=pointer_valid_&&history_period_hit(layout,pointer_x_,pointer_y_);
+    if(selected==0||period_hover)fill_round_rect(renderer,{period_control.x,period_control.y,period_control.w,period_control.h},8,selected==0?SDL_Color{48,78,110,255}:SDL_Color{38,61,88,255});
+    const SDL_Color period_border=(selected==0||period_hover)?uxair_accent:SDL_Color{90,112,132,255};
+    SDL_SetRenderDrawColor(renderer,period_border.r,period_border.g,period_border.b,255);
+    SDL_RenderDrawRect(renderer,&period_control);
+    text_at("Playback time",chart_x+18,chart_y+18,period_control.x-chart_x-34,small_,uxair_text);
+    text_at(data.period,period_control.x+12,period_control.y+10,control_w-48,small_,uxair_text);
+    const int cx=period_control.x+control_w-25,cy=period_control.y+23;
+    SDL_RenderDrawLine(renderer,cx-6,cy-3,cx,cy+3);SDL_RenderDrawLine(renderer,cx,cy+3,cx+6,cy-3);
     uint64_t maximum=0;for(const auto& b:data.bars)if(b.available)maximum=std::max(maximum,b.mirror_ms+b.audio_ms);
-    int n=int(data.bars.size()),gap=n>18?3:8,inner_x=chart_x+22,inner_y=chart_y+48,inner_w=chart_w-44,base=chart_y+chart_h-30;
+    int n=int(data.bars.size()),gap=n>18?3:8,inner_x=chart_x+22,inner_w=chart_w-44,base=chart_y+chart_h-30;
     int bw=n?std::max(3,(inner_w-gap*std::max(0,n-1))/n):3;
     for(int i=0;i<n;++i) {
         const auto& b=data.bars[size_t(i)];int x=inner_x+i*(bw+gap);
@@ -209,26 +224,30 @@ void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& row
         SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect audio={x,base-bar_h,bw,audio_h};if(audio_h)SDL_RenderFillRect(renderer,&audio);
         if(n<=12||(n==30&&i%5==0))text_at(b.label,x-4,base+3,bw+8,small_,{171,190,204,255});
     }
-    const int dist_y=top+385,dist_h=30;uint64_t mirror=0,audio=0;
+    const int dist_y=chart_y+chart_h+20,dist_h=22;uint64_t mirror=0,audio=0;
     for(const auto& b:data.bars)if(b.available){mirror+=b.mirror_ms;audio+=b.audio_ms;}
     text_at("Screen mirroring",panel,dist_y,content/3,small_,uxair_text);
     text_at("AirPlay music",panel+content/3,dist_y,content/3,small_,{145,211,181,255});
     uint64_t total=mirror+audio;char pct[64];snprintf(pct,sizeof(pct),"%llu%% / %llu%%",(unsigned long long)(total?double(mirror)*100.0/double(total):0),(unsigned long long)(total?double(audio)*100.0/double(total):0));
     text_at(pct,panel+2*content/3,dist_y,content/3,small_,uxair_text);
-    SDL_Rect track={panel,dist_y+30,content,dist_h};SDL_SetRenderDrawColor(renderer,47,65,85,255);SDL_RenderFillRect(renderer,&track);
-    int mw=total?int(content*double(mirror)/total):0;SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect m={panel,dist_y+30,mw,dist_h};if(mw)SDL_RenderFillRect(renderer,&m);
-    SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect a={panel+mw,dist_y+30,content-mw,dist_h};if(total&&a.w)SDL_RenderFillRect(renderer,&a);
-    int list_y=h*70/100; text_at("Recent sessions",panel,list_y-34,content/2,font_,uxair_text);
+    const int dist_bar_y=dist_y+25;
+    SDL_Rect track={panel,dist_bar_y,content,dist_h};SDL_SetRenderDrawColor(renderer,47,65,85,255);SDL_RenderFillRect(renderer,&track);
+    int mw=total?int(content*double(mirror)/total):0;SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect m={panel,dist_bar_y,mw,dist_h};if(mw)SDL_RenderFillRect(renderer,&m);
+    SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect a={panel+mw,dist_bar_y,content-mw,dist_h};if(total&&a.w)SDL_RenderFillRect(renderer,&a);
+    const int heading_y=dist_bar_y+dist_h+25,list_y=layout.list_y,row_h=layout.row_h;
+    text_at("Recent sessions",panel,heading_y,content/2,font_,uxair_text);
     const int count=std::max(0,int(rows.size())-2),visible=std::min(5,count),first=visible_row_first(std::max(0,selected-1),count,visible);
-    for(int i=0;i<visible;++i){int row=first+i,idx=row+1,y=list_y+i*43;
-        if(selected==idx){SDL_Rect f={panel-5,y-2,content,45};SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&f);}
-        const auto& r=rows[size_t(idx)];text_at(r.label,panel+10,y,content/3,small_,uxair_text);text_at(r.value,panel+content/3,y,content/5,small_,uxair_accent);text_at(r.note,panel+content*53/100,y,content*46/100,small_,{174,194,207,255});
+    for(int i=0;i<visible;++i){int row=first+i,idx=row+1,y=list_y+i*row_h;
+        if(selected==idx){SDL_Rect f={panel-5,y-3,content,row_h-1};SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&f);}
+        const auto& r=rows[size_t(idx)];text_at(r.label,panel+10,y+5,content*28/100,small_,uxair_text);text_at(r.value,panel+content*30/100,y+5,content*16/100,small_,uxair_accent);text_at(r.note,panel+content*49/100,y+5,content*49/100,small_,{174,194,207,255});
     }
     if(count==0)text_at("No playback history yet.",panel+10,list_y+5,content-20,font_,{174,194,207,255});
-    int reset_index=int(rows.size())-1,reset_y=h*91/100;
-    SDL_Rect reset={panel-5,reset_y-4,content,42};if(selected==reset_index){SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&reset);}
-    text_at("Reset history",panel+10,reset_y,content/2,small_,selected==reset_index?uxair_accent:uxair_text);
-    text_at(data.storage,panel+content/2,reset_y,content/2,small_,{151,178,194,255});
+    int reset_index=int(rows.size())-1,reset_y=layout.reset_y;
+    SDL_Rect reset={layout.reset_x,reset_y-4,layout.reset_w,layout.reset_h};if(selected==reset_index|| (pointer_valid_&&history_reset_hit(layout,pointer_x_,pointer_y_))){fill_round_rect(renderer,reset,8,{48,78,110,255});}
+    const SDL_Color reset_border=selected==reset_index?uxair_accent:SDL_Color{90,112,132,255};
+    SDL_SetRenderDrawColor(renderer,reset_border.r,reset_border.g,reset_border.b,255);SDL_RenderDrawRect(renderer,&reset);
+    text_at("Reset history",panel+10,reset_y,160,small_,selected==reset_index?uxair_accent:uxair_text);
+    text_at(data.storage,panel+200,reset_y,w-panel-250,small_,{174,194,207,255});
 }
 void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer,const UiDialog *dialog,const std::string& pin,bool donation_open,const UiHistoryData *history) {
     int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
@@ -273,12 +292,17 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
             SDL_SetRenderDrawColor(renderer,uxair_accent.r,uxair_accent.g,uxair_accent.b,255);SDL_RenderFillRect(renderer,&marker);
         }
         const SDL_Color primary=rows[i].enabled?uxair_text:SDL_Color{159,174,194,255};
-        text_at(rows[i].label,panel+18,y+4,(w-panel)*56/100,font_,primary);
+        const bool donation_row=page_id==UiPage::System&&i==3&&donation_icon_;
+        const int label_x=donation_row?panel+82:panel+18;
+        text_at(rows[i].label,label_x,y+4,w-label_x-35,font_,primary);
         if(!rows[i].value.empty())text_at(rows[i].value,panel+(w-panel)*65/100,y+4,(w-panel)*30/100,font_,int(i)==selected?uxair_accent:primary);
-        if(!rows[i].note.empty())text_at(rows[i].note,panel+18,y+43,w-panel-60,small_,{151,178,194,255});
+        if(!rows[i].note.empty())text_at(rows[i].note,label_x,y+43,w-label_x-48,small_,{151,178,194,255});
+        if(donation_row) {
+            SDL_Rect icon={panel+18,y+(row_height-48)/2,48,48};SDL_RenderCopy(renderer,donation_icon_,nullptr,&icon);
+        }
         }
     }
-    text_at(footer,panel,h-54,w-panel-35,small_,{152,180,194,255});
+    if(page_id!=UiPage::History)text_at(footer,panel,h-54,w-panel-35,small_,{152,180,194,255});
     if(dialog) {
         SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer,0,5,10,190);
@@ -379,4 +403,4 @@ void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     text("Same Wi-Fi network  ·  Quality in Settings  ·  Back to exit",h-80,font_,{145,167,185,255});
     SDL_RenderPresent(renderer);
 }
-Shell::~Shell() {if(donation_qr_)SDL_DestroyTexture(donation_qr_);if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);if(pin_font_)TTF_CloseFont(pin_font_);if(pin_font_small_)TTF_CloseFont(pin_font_small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }
+Shell::~Shell() {if(donation_icon_)SDL_DestroyTexture(donation_icon_);if(donation_qr_)SDL_DestroyTexture(donation_qr_);if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);if(pin_font_)TTF_CloseFont(pin_font_);if(pin_font_small_)TTF_CloseFont(pin_font_small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }

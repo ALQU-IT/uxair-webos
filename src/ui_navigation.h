@@ -20,4 +20,12 @@ struct UiNavigation {
 };
 
 int visible_row_first(int selected, int count, int visible);
+struct HistoryUiLayout {
+    int panel_x,content_width,chart_y,period_x,period_y,period_w,period_h;
+    int list_y,row_h,reset_x,reset_y,reset_w,reset_h;
+};
+HistoryUiLayout history_ui_layout(int width,int height);
+bool history_period_hit(const HistoryUiLayout&,int x,int y);
+bool history_reset_hit(const HistoryUiLayout&,int x,int y);
+int history_session_hit(const HistoryUiLayout&,int x,int y,int count,int selected);
 bool session_ui_redraw_due(bool opened, bool visible, int64_t last_render_ns, int64_t now_ns);

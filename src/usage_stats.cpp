@@ -17,15 +17,18 @@ const char *session_kind_name(SessionKind k) {
 const char *usage_period_name(UsagePeriod p) {
     return p==UsagePeriod::Days30?"Last 30 days":p==UsagePeriod::Months12?"Last 12 months":"Last 7 days";
 }
-// Choose the next 1/2/5 scale using the full value, not its truncated leading digit.
+// Round each of the two tick intervals upward in the chart's displayed unit.
 uint64_t usage_chart_axis(uint64_t maximum) {
     if(!maximum)return 60000;
+    const uint64_t unit=maximum>=3600000?3600000:maximum>=60000?60000:1000;
+    const uint64_t divisor=2*unit;
+    const uint64_t steps=maximum/divisor+(maximum%divisor!=0);
     uint64_t magnitude=1;
-    while(magnitude<=maximum/10)magnitude*=10;
+    while(magnitude<=steps/10)magnitude*=10;
     for(unsigned factor:{1U,2U,5U,10U}) {
         if(magnitude>UINT64_MAX/factor)return UINT64_MAX;
         const uint64_t candidate=magnitude*factor;
-        if(candidate>=maximum)return candidate;
+        if(candidate>=steps)return candidate>UINT64_MAX/divisor?UINT64_MAX:candidate*divisor;
     }
     return UINT64_MAX;
 }

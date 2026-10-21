@@ -10,7 +10,7 @@ assert "HistoryPeriod" not in main + shell + navigation
 assert "data.daily_title,false" in shell
 assert "data.monthly_title,true" in shell
 assert "data.daily_bars" in shell and "data.monthly_bars" in shell
-assert 'label=b.label+(b.partial?"*":"")' in shell
+assert 'if(b.partial)text_at("*"' in shell
 assert '"STARTED (UTC)"' in shell and '"DURATION"' in shell and '"SESSION"' in shell
 assert "page_id!=UiPage::History&&page_id!=UiPage::System" in shell
 assert "TTF_SizeUTF8(font_,rows[i].label.c_str()" in shell

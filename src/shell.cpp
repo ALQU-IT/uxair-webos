@@ -186,17 +186,17 @@ void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *fon
 }
 void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& rows,int selected,int panel,int w,int h) {
     const HistoryUiLayout layout=history_ui_layout(w,h);
-    const int content=layout.content_width,top=layout.card_top,card_gap=16,card_h=70;
+    const int content=layout.content_width,top=layout.card_top,card_gap=16,card_h=74;
     auto card=[&](int x,int y,int cw,const char *label,const std::string& value) {
         SDL_Rect r={x,y,cw,card_h};fill_round_rect(renderer,r,12,uxair_navy);
-        text_at(label,x+16,y+9,cw-32,small_,{157,184,201,255});
-        text_at(value,x+16,y+34,cw-32,font_,uxair_text);
+        text_at(label,x+16,y+5,cw-32,small_,{157,184,201,255});
+        text_at(value,x+16,y+36,cw-32,font_,uxair_text);
     };
     const int third=(content-card_gap*2)/3;
     card(panel,top,third,"LIFETIME SESSIONS",data.summary);
     card(panel+third+card_gap,top,third,"LIFETIME PLAYBACK",data.total_time);
     card(panel+2*(third+card_gap),top,third,"AVERAGE SESSION",data.average);
-    const int second_y=top+84;
+    const int second_y=top+86;
     card(panel,second_y,content/2-card_gap/2,"LAST 30 DAYS - SCREEN MIRRORING",data.mirror_time);
     card(panel+content/2+card_gap/2,second_y,content/2-card_gap/2,"LAST 30 DAYS - AIRPLAY MUSIC",data.music_time);
     auto draw_chart=[&](int x,int y,int cw,int ch,const std::vector<UiHistoryBar>& bars,const std::string& title,bool monthly) {
@@ -207,7 +207,7 @@ void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& row
             maximum=std::max(maximum,total);
         }
         const uint64_t axis=usage_chart_axis(maximum);
-        const uint64_t unit=axis>=3600000?3600000:axis>=60000?60000:1000;
+        const uint64_t unit=maximum>=3600000?3600000:maximum>=60000?60000:1000;
         const int text_h=TTF_FontHeight(small_),padding=16;
         text_at(title,x+padding,y+8,cw-2*padding,small_,uxair_text);
         // Reserve two label rows; one shared legend below the cards explains both charts.
@@ -237,16 +237,19 @@ void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& row
             const int mh=heights.mirror,ah=heights.audio;
             SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect mr={bx,base-mh,bw,mh};if(mh)SDL_RenderFillRect(renderer,&mr);
             SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect ar={bx,base-mh-ah,bw,ah};if(ah)SDL_RenderFillRect(renderer,&ar);
+            if(b.partial)text_at("*",(left+right)/2-6,base-text_h,bw+12,small_,uxair_text);
             if(!mh&&!ah) {SDL_SetRenderDrawColor(renderer,174,194,207,255);SDL_Rect zero={(left+right)/2-1,base-2,3,2};SDL_RenderFillRect(renderer,&zero);}
         }
         SDL_RenderSetClipRect(renderer,had_clip?&previous_clip:nullptr);
         // Labels are independent of bar availability, so Jan/Dec and day 1/end never disappear.
         for(int i=0;i<n;++i) {
             const auto& b=bars[size_t(i)];
-            if(!monthly&&i!=0&&(i+1)%5!=0&&i!=n-1)continue;
+            if(!monthly&&!b.current&&i!=0&&(i+1)%5!=0&&i!=n-1)continue;
+            if(!monthly&&!b.current&&i!=0&&i!=n-1&&
+               ((i>0&&bars[size_t(i-1)].current)||(i+1<n&&bars[size_t(i+1)].current)))continue;
             // Avoid adjacent day 30/31 labels. The final calendar day takes priority.
             if(!monthly&&i==n-2&&i!=0)continue;
-            const std::string label=b.label+(b.partial?"*":"");
+            const std::string label=b.label;
             int tw=0;TTF_SizeUTF8(small_,label.c_str(),&tw,nullptr);
             const int center=px+pw*(2*i+1)/(2*n);
             const int tx=std::max(px,std::min(center-tw/2,x+cw-padding-tw));

@@ -40,7 +40,7 @@ int main() {
             if(value&&height)assert(h.mirror+h.audio>0);
         }
     }
-    assert(usage_chart_axis(151000)==200000);
+    assert(usage_chart_axis(151000)==240000);
     auto exact=usage_bar_heights(120000,80000,200000,100);assert(exact.mirror==60&&exact.audio==40);
     auto clipped=usage_bar_heights(UINT64_MAX,UINT64_MAX,1,100);assert(clipped.mirror+clipped.audio==100);
     auto day=[](int year,int month,int date) {struct tm t={};t.tm_year=year-1900;t.tm_mon=month-1;t.tm_mday=date;return usage_utc_day(uint64_t(timegm(&t)));};

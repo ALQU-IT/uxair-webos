@@ -9,26 +9,28 @@ int visible_row_first(int selected,int count,int visible) {
     return std::max(0,std::min(selected-visible/2,count-visible));
 }
 HistoryUiLayout history_ui_layout(int width,int height) {
-    const int panel=width/4+32,content=width-panel-48,top=height/4;
-    const int control_w=std::min(370,content*34/100),chart_y=top+210;
-    const int list_y=chart_y+168+20+25+22+25+37;
-    return {panel,content,chart_y,panel+content-control_w-14,chart_y+8,control_w,48,
-            list_y,36,panel-5,height-70,180,42};
+    const int panel=width/4+32,content=width-panel-48,top=height/5;
+    const int chart_y=top+200,chart_h=208,gap=20;
+    const int daily=(content-gap)*65/100;
+    const int distribution_y=chart_y+chart_h+18;
+    const int distribution_bar_y=distribution_y+27;
+    const int heading_y=distribution_bar_y+22+17;
+    const int row_h=std::max(28,std::min(36,height/30));
+    const int list_y=heading_y+58;
+    return {panel,content,top,chart_y,chart_h,daily,gap,distribution_y,
+            distribution_bar_y,heading_y,list_y,row_h,panel-5,height-74,180,42};
 }
 static bool in_rect(int x,int y,int left,int top,int width,int height) {
     return x>=left&&x<left+width&&y>=top&&y<top+height;
-}
-bool history_period_hit(const HistoryUiLayout& l,int x,int y) {
-    return in_rect(x,y,l.period_x,l.period_y,l.period_w,l.period_h);
 }
 bool history_reset_hit(const HistoryUiLayout& l,int x,int y) {
     return in_rect(x,y,l.reset_x,l.reset_y-4,l.reset_w,l.reset_h+4);
 }
 int history_session_hit(const HistoryUiLayout& l,int x,int y,int count,int selected) {
     if(x<l.panel_x-5||x>=l.panel_x+l.content_width||count<=0||y<l.list_y)return -1;
-    const int visible=std::min(5,count),first=visible_row_first(std::max(0,selected-1),count,visible);
+    const int visible=std::min(5,count),first=visible_row_first(std::max(0,selected),count,visible);
     const int row=(y-l.list_y)/l.row_h;
-    return row<visible&&first+row<count?first+row+1:-1;
+    return row<visible&&first+row<count?first+row:-1;
 }
 void UiNavigation::category(int index) {
     if(dialog!=UiDialogKind::None||index<0||index>=5)return;

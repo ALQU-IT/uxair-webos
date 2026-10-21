@@ -21,7 +21,6 @@ c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/state_test.cpp src/settings.cpp src/usage_stats.cpp -o build/tests/state-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/usage_stats_test.cpp src/usage_stats.cpp -o build/tests/usage-stats-test
 build/tests/state-test
-c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/usage_stats_test.cpp src/usage_stats.cpp -o build/tests/usage-stats-test
 build/tests/usage-stats-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/media_rate_test.cpp src/settings.cpp -o build/tests/media-rate-test
@@ -29,6 +28,7 @@ build/tests/media-rate-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/ui_navigation_test.cpp src/ui_navigation.cpp -o build/tests/ui-navigation-test
 build/tests/ui-navigation-test
+python3 tests/history_dashboard_test.py
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/pairing_ui_test.cpp src/ui_navigation.cpp -o build/tests/pairing-ui-test
 build/tests/pairing-ui-test

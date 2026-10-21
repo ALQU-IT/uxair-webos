@@ -1,5 +1,6 @@
 #include "shell.h"
 #include "identity.h"
+#include "usage_stats.h"
 #include <SDL_webOS.h>
 #include <SDL_ttf.h>
 #include <csignal>
@@ -147,14 +148,13 @@ UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog, int s
             return {UiHitKind::Cancel,-1};
         return {UiHitKind::DialogChoice,dialog_first(*dialog)+(y-top-124)/72};
     }
-    int top=h/4,row_height=std::max(66,h/11),sidebar=w/4;
+    int top=(page_id==UiPage::System?h/5:h/4),row_height=std::max(66,h/11),sidebar=w/4;
     if(x>=0 && x<sidebar && y>=top && y<top+5*row_height)
         return {UiHitKind::Category,(y-top)/row_height};
     if(x>=sidebar+24 && x<w-24) {
         if(page_id==UiPage::History) {
             const HistoryUiLayout layout=history_ui_layout(w,h);
-            if(history_period_hit(layout,x,y))return {UiHitKind::Row,0};
-            const int count=std::max(0,row_count-2);
+            const int count=std::max(0,row_count-1);
             const int session=history_session_hit(layout,x,y,count,selected);
             if(session>=0)return {UiHitKind::Row,session};
             if(history_reset_hit(layout,x,y))return {UiHitKind::Row,row_count-1};
@@ -186,60 +186,80 @@ void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *fon
 }
 void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& rows,int selected,int panel,int w,int h) {
     const HistoryUiLayout layout=history_ui_layout(w,h);
-    const int content=w-panel-48,top=h/4,card_gap=16,card_h=84;
+    const int content=layout.content_width,top=layout.card_top,card_gap=16,card_h=82;
     auto card=[&](int x,int y,int cw,const char *label,const std::string& value) {
         SDL_Rect r={x,y,cw,card_h};fill_round_rect(renderer,r,12,uxair_navy);
-        text_at(label,x+18,y+10,cw-36,small_,{157,184,201,255});
-        text_at(value,x+18,y+42,cw-36,font_,uxair_text);
+        text_at(label,x+16,y+9,cw-32,small_,{157,184,201,255});
+        text_at(value,x+16,y+40,cw-32,font_,uxair_text);
     };
     const int third=(content-card_gap*2)/3;
-    card(panel,top,third,"SESSIONS",data.summary);
-    card(panel+third+card_gap,top,third,"TOTAL PLAYBACK",data.total_time);
+    card(panel,top,third,"LIFETIME SESSIONS",data.summary);
+    card(panel+third+card_gap,top,third,"LIFETIME PLAYBACK",data.total_time);
     card(panel+2*(third+card_gap),top,third,"AVERAGE SESSION",data.average);
-    card(panel,top+100,content/2-card_gap/2,"SCREEN MIRRORING - PERIOD",data.mirror_time);
-    card(panel+content/2+card_gap/2,top+100,content/2-card_gap/2,"AIRPLAY MUSIC - PERIOD",data.music_time);
-    const int chart_x=panel,chart_y=layout.chart_y,chart_w=content,chart_h=168;
-    SDL_Rect chart={chart_x,chart_y,chart_w,chart_h};fill_round_rect(renderer,chart,12,{25,39,61,255});
-    const int control_w=layout.period_w,control_h=layout.period_h;
-    SDL_Rect period_control={layout.period_x,layout.period_y,control_w,control_h};
-    const bool period_hover=pointer_valid_&&history_period_hit(layout,pointer_x_,pointer_y_);
-    if(selected==0||period_hover)fill_round_rect(renderer,{period_control.x,period_control.y,period_control.w,period_control.h},8,selected==0?SDL_Color{48,78,110,255}:SDL_Color{38,61,88,255});
-    const SDL_Color period_border=(selected==0||period_hover)?uxair_accent:SDL_Color{90,112,132,255};
-    SDL_SetRenderDrawColor(renderer,period_border.r,period_border.g,period_border.b,255);
-    SDL_RenderDrawRect(renderer,&period_control);
-    text_at("Playback time",chart_x+18,chart_y+18,period_control.x-chart_x-34,small_,uxair_text);
-    text_at(data.period,period_control.x+12,period_control.y+10,control_w-48,small_,uxair_text);
-    const int cx=period_control.x+control_w-25,cy=period_control.y+23;
-    SDL_RenderDrawLine(renderer,cx-6,cy-3,cx,cy+3);SDL_RenderDrawLine(renderer,cx,cy+3,cx+6,cy-3);
-    uint64_t maximum=0;for(const auto& b:data.bars)if(b.available)maximum=std::max(maximum,b.mirror_ms+b.audio_ms);
-    int n=int(data.bars.size()),gap=n>18?3:8,inner_x=chart_x+22,inner_w=chart_w-44,base=chart_y+chart_h-30;
-    int bw=n?std::max(3,(inner_w-gap*std::max(0,n-1))/n):3;
-    for(int i=0;i<n;++i) {
-        const auto& b=data.bars[size_t(i)];int x=inner_x+i*(bw+gap);
-        if(!b.available) {SDL_SetRenderDrawColor(renderer,65,77,91,255);SDL_Rect empty={x,base-3,bw,3};SDL_RenderFillRect(renderer,&empty);continue;}
-        uint64_t total=b.mirror_ms+b.audio_ms;int bar_h=maximum?int((chart_h-88)*double(total)/maximum):0;
-        if(total==0){SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect zero={x,base-3,bw,3};SDL_RenderFillRect(renderer,&zero);continue;}
-        int mirror_h=total?int(bar_h*double(b.mirror_ms)/total):0,audio_h=bar_h-mirror_h;
-        SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect mirror={x,base-mirror_h,bw,mirror_h};if(mirror_h)SDL_RenderFillRect(renderer,&mirror);
-        SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect audio={x,base-bar_h,bw,audio_h};if(audio_h)SDL_RenderFillRect(renderer,&audio);
-        if(n<=12||(n==30&&i%5==0))text_at(b.label,x-4,base+3,bw+8,small_,{171,190,204,255});
-    }
-    const int dist_y=chart_y+chart_h+20,dist_h=22;uint64_t mirror=0,audio=0;
-    for(const auto& b:data.bars)if(b.available){mirror+=b.mirror_ms;audio+=b.audio_ms;}
-    text_at("Screen mirroring",panel,dist_y,content/3,small_,uxair_text);
-    text_at("AirPlay music",panel+content/3,dist_y,content/3,small_,{145,211,181,255});
-    uint64_t total=mirror+audio;char pct[64];snprintf(pct,sizeof(pct),"%llu%% / %llu%%",(unsigned long long)(total?double(mirror)*100.0/double(total):0),(unsigned long long)(total?double(audio)*100.0/double(total):0));
-    text_at(pct,panel+2*content/3,dist_y,content/3,small_,uxair_text);
-    const int dist_bar_y=dist_y+25;
-    SDL_Rect track={panel,dist_bar_y,content,dist_h};SDL_SetRenderDrawColor(renderer,47,65,85,255);SDL_RenderFillRect(renderer,&track);
-    int mw=total?int(content*double(mirror)/total):0;SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect m={panel,dist_bar_y,mw,dist_h};if(mw)SDL_RenderFillRect(renderer,&m);
-    SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect a={panel+mw,dist_bar_y,content-mw,dist_h};if(total&&a.w)SDL_RenderFillRect(renderer,&a);
-    const int heading_y=dist_bar_y+dist_h+25,list_y=layout.list_y,row_h=layout.row_h;
-    text_at("Recent sessions",panel,heading_y,content/2,font_,uxair_text);
-    const int count=std::max(0,int(rows.size())-2),visible=std::min(5,count),first=visible_row_first(std::max(0,selected-1),count,visible);
-    for(int i=0;i<visible;++i){int row=first+i,idx=row+1,y=list_y+i*row_h;
+    const int second_y=top+96;
+    card(panel,second_y,content/2-card_gap/2,"LAST 30 DAYS - SCREEN MIRRORING",data.mirror_time);
+    card(panel+content/2+card_gap/2,second_y,content/2-card_gap/2,"LAST 30 DAYS - AIRPLAY MUSIC",data.music_time);
+    auto draw_chart=[&](int x,int y,int cw,int ch,const std::vector<UiHistoryBar>& bars,const char *title,bool monthly) {
+        fill_round_rect(renderer,{x,y,cw,ch},12,{25,39,61,255});
+        uint64_t maximum=0;
+        for(const auto& b:bars)if(b.available) {
+            const uint64_t total=b.audio_ms>UINT64_MAX-b.mirror_ms?UINT64_MAX:b.mirror_ms+b.audio_ms;
+            maximum=std::max(maximum,total);
+        }
+        uint64_t axis=maximum?maximum:60000,magnitude=1;
+        while(magnitude<=axis/10&&magnitude<=UINT64_MAX/10)magnitude*=10;
+        const uint64_t leading=axis/magnitude,factor=leading<=1?1:leading<=2?2:leading<=5?5:10;
+        axis=factor>UINT64_MAX/magnitude?maximum:factor*magnitude;
+        text_at(title,x+16,y+10,cw-32,small_,uxair_text);
+        text_at(monthly?"* partial/current":"Duration",x+cw-150,y+10,134,small_,{166,188,202,255});
+        const int px=x+62,py=y+44,pw=cw-76,base=y+ch-32,plot_h=base-py;
+        for(int tick=0;tick<=2;++tick) {
+            const int gy=base-plot_h*tick/2;
+            SDL_SetRenderDrawColor(renderer,54,70,88,255);SDL_RenderDrawLine(renderer,px,gy,px+pw,gy);
+            const uint64_t tick_value=tick==0?0:tick==1?axis/2:axis;
+            text_at(usage_axis_label(tick_value),x+7,gy-12,50,small_,{157,178,194,255});
+        }
+        const int n=int(bars.size()),slot=n?pw/n:pw,bw=std::max(2,std::min(slot-3,monthly?22:14));
+        for(int i=0;i<n;++i) {
+            const UiHistoryBar& b=bars[size_t(i)];const int bx=px+i*slot+(slot-bw)/2;
+            if(!b.available) {SDL_SetRenderDrawColor(renderer,65,77,91,255);SDL_RenderDrawLine(renderer,bx,base-2,bx+bw-1,base-2);continue;}
+            const uint64_t total=b.audio_ms>UINT64_MAX-b.mirror_ms?UINT64_MAX:b.mirror_ms+b.audio_ms;
+            const int bh=maximum?int((long double)plot_h*total/axis):0;
+            if(total&&bh==0) {SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_RenderDrawLine(renderer,bx,base-1,bx+bw-1,base-1);}
+            const int mh=total?int((long double)bh*b.mirror_ms/total):0,ah=bh-mh;
+            SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect mr={bx,base-mh,bw,mh};if(mh)SDL_RenderFillRect(renderer,&mr);
+            SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect ar={bx,base-bh,bw,ah};if(ah)SDL_RenderFillRect(renderer,&ar);
+            if(monthly||i%5==0||i==n-1) {
+                const std::string label=b.label+(b.partial?"*":"");
+                text_at(label,bx-slot/2,base+3,slot,small_,{171,190,204,255});
+            }
+        }
+        if(maximum==0)text_at("No playback data yet",px+8,py+plot_h/2-14,pw-16,small_,{145,166,181,255});
+    };
+    const int chart_y=layout.chart_y,chart_h=layout.chart_h;
+    draw_chart(panel,chart_y,layout.daily_width,chart_h,data.daily_bars,"Last 30 days",false);
+    const int month_x=panel+layout.daily_width+layout.chart_gap;
+    draw_chart(month_x,chart_y,content-layout.daily_width-layout.chart_gap,chart_h,data.monthly_bars,"Last 12 months",true);
+    if(data.mirror_percent+data.audio_percent) {
+        text_at("Last 30 days - playback distribution",panel,layout.distribution_y,content/2,small_,uxair_text);
+        text_at("Screen mirroring  "+std::to_string(data.mirror_percent)+"%",panel+content/2,layout.distribution_y,content/4,small_,uxair_accent);
+        text_at("AirPlay music  "+std::to_string(data.audio_percent)+"%",panel+content*3/4,layout.distribution_y,content/4,small_,{145,211,181,255});
+    } else text_at("No playback yet",panel,layout.distribution_y,content,small_,{174,194,207,255});
+    const int dist_h=20;
+    SDL_Rect track={panel,layout.distribution_bar_y,content,dist_h};SDL_SetRenderDrawColor(renderer,47,65,85,255);SDL_RenderFillRect(renderer,&track);
+    const unsigned total_pct=data.mirror_percent+data.audio_percent;
+    const int mw=int(content*data.mirror_percent/100);
+    SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect m={panel,layout.distribution_bar_y,mw,dist_h};if(mw)SDL_RenderFillRect(renderer,&m);
+    SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect a={panel+mw,layout.distribution_bar_y,content-mw,dist_h};if(total_pct&&a.w)SDL_RenderFillRect(renderer,&a);
+    const int list_y=layout.list_y,row_h=layout.row_h;
+    text_at("Recent sessions",panel,layout.heading_y,content/2,font_,uxair_text);
+    text_at("STARTED (UTC)",panel+10,layout.heading_y+30,content*27/100,small_,{157,184,201,255});
+    text_at("DURATION",panel+content*30/100,layout.heading_y+30,content*15/100,small_,{157,184,201,255});
+    text_at("SESSION",panel+content*48/100,layout.heading_y+30,content*50/100,small_,{157,184,201,255});
+    const int count=std::max(0,int(rows.size())-1),visible=std::min(5,count),first=visible_row_first(std::max(0,selected),count,visible);
+    for(int i=0;i<visible;++i){int idx=first+i,y=list_y+i*row_h;
         if(selected==idx){SDL_Rect f={panel-5,y-3,content,row_h-1};SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&f);}
-        const auto& r=rows[size_t(idx)];text_at(r.label,panel+10,y+5,content*28/100,small_,uxair_text);text_at(r.value,panel+content*30/100,y+5,content*16/100,small_,uxair_accent);text_at(r.note,panel+content*49/100,y+5,content*49/100,small_,{174,194,207,255});
+        const auto& r=rows[size_t(idx)];text_at(r.label,panel+10,y+4,content*27/100,small_,uxair_text);text_at(r.value,panel+content*30/100,y+4,content*15/100,small_,uxair_accent);text_at(r.note,panel+content*48/100,y+4,content*50/100,small_,{174,194,207,255});
     }
     if(count==0)text_at("No playback history yet.",panel+10,list_y+5,content-20,font_,{174,194,207,255});
     int reset_index=int(rows.size())-1,reset_y=layout.reset_y;
@@ -265,7 +285,8 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
     text_at("UxAir",w/28,h/18,sidebar-40,large_,uxair_accent);
     text_at("AirPlay Receiver",w/28,h/8,sidebar-40,small_,{154,185,202,255});
     text_at(titles[index],panel,h/20,w-panel-35,large_,{239,247,249,255});
-    text_at(subtitle,panel,h/7,w-panel-35,font_,{154,185,202,255});
+    if(page_id!=UiPage::History&&page_id!=UiPage::System)
+        text_at(subtitle,panel,h/7,w-panel-35,font_,{154,185,202,255});
     const int top=h/4;
     const int row_height=std::max(66,h/11);
     for(int i=0;i<5;++i) {
@@ -282,9 +303,10 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
         draw_history(*history,rows,selected,panel,w,h);
     } else {
         const size_t visible_rows=std::min<size_t>(rows.size(),7);
+        const int row_top=page_id==UiPage::System?h/5:top;
         const int first_row=visible_row_first(selected,int(rows.size()),int(visible_rows));
         for(size_t slot=0;slot<visible_rows;++slot) {
-        size_t i=size_t(first_row)+slot;int y=top+int(slot)*row_height;
+        size_t i=size_t(first_row)+slot;int y=row_top+int(slot)*row_height;
         if(int(i)==selected) {
             SDL_Rect focus={panel-8,y-6,w-panel-24,row_height-5};
             SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&focus);
@@ -293,12 +315,21 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
         }
         const SDL_Color primary=rows[i].enabled?uxair_text:SDL_Color{159,174,194,255};
         const bool donation_row=page_id==UiPage::System&&i==3&&donation_icon_;
-        const int label_x=donation_row?panel+82:panel+18;
+        int icon_size=48,icon_y=y+(row_height-48)/2;
+        if(donation_row) {
+            int title_h=0,note_h=0;
+            TTF_SizeUTF8(font_,rows[i].label.c_str(),nullptr,&title_h);
+            TTF_SizeUTF8(small_,rows[i].note.c_str(),nullptr,&note_h);
+            const int text_top=y+4,text_bottom=std::max(y+4+title_h,y+43+note_h),text_height=text_bottom-text_top;
+            icon_size=std::max(48,std::min(68,text_height));
+            icon_y=text_top+(text_height-icon_size)/2;
+        }
+        const int label_x=donation_row?panel+18+icon_size+16:panel+18;
         text_at(rows[i].label,label_x,y+4,w-label_x-35,font_,primary);
         if(!rows[i].value.empty())text_at(rows[i].value,panel+(w-panel)*65/100,y+4,(w-panel)*30/100,font_,int(i)==selected?uxair_accent:primary);
         if(!rows[i].note.empty())text_at(rows[i].note,label_x,y+43,w-label_x-48,small_,{151,178,194,255});
         if(donation_row) {
-            SDL_Rect icon={panel+18,y+(row_height-48)/2,48,48};SDL_RenderCopy(renderer,donation_icon_,nullptr,&icon);
+            SDL_Rect icon={panel+18,icon_y,icon_size,icon_size};SDL_RenderCopy(renderer,donation_icon_,nullptr,&icon);
         }
         }
     }

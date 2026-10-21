@@ -17,6 +17,19 @@ const char *session_kind_name(SessionKind k) {
 const char *usage_period_name(UsagePeriod p) {
     return p==UsagePeriod::Days30?"Last 30 days":p==UsagePeriod::Months12?"Last 12 months":"Last 7 days";
 }
+std::string usage_axis_label(uint64_t milliseconds) {
+    char label[32];
+    if(milliseconds<1000)snprintf(label,sizeof(label),"%llums",(unsigned long long)milliseconds);
+    else if(milliseconds>=3600000)snprintf(label,sizeof(label),"%lluh",(unsigned long long)(milliseconds/3600000+(milliseconds%3600000>=1800000)));
+    else if(milliseconds>=60000)snprintf(label,sizeof(label),"%llum",(unsigned long long)(milliseconds/60000+(milliseconds%60000>=30000)));
+    else snprintf(label,sizeof(label),"%llus",(unsigned long long)(milliseconds/1000+(milliseconds%1000>=500)));
+    return label;
+}
+unsigned usage_mirror_percent(uint64_t mirror_ms,uint64_t audio_ms) {
+    if(!mirror_ms&&!audio_ms)return 0;
+    const long double total=static_cast<long double>(mirror_ms)+static_cast<long double>(audio_ms);
+    return static_cast<unsigned>(static_cast<long double>(mirror_ms)*100.0L/total+0.5L);
+}
 uint32_t usage_utc_day(uint64_t seconds) {
     uint64_t d=seconds/86400;return d>UINT32_MAX?UINT32_MAX:uint32_t(d);
 }
@@ -168,7 +181,12 @@ UsageSummary summarize_usage(const UsageStats& stats,UsagePeriod p,uint32_t toda
     }
     out.bars.resize(size_t(slots));
     for(int i=0;i<slots;++i){out.bars[size_t(i)].label=labels[size_t(i)];
-        out.bars[size_t(i)].available=stats.daily_from_day&&(monthly?month_key(month_starts[size_t(i)])>=month_key(stats.daily_from_day):month_starts[size_t(i)]>=stats.daily_from_day&&keys[size_t(i)]<=today);}
+        out.bars[size_t(i)].available=stats.daily_from_day&&(monthly?month_key(month_starts[size_t(i)])>=month_key(stats.daily_from_day):month_starts[size_t(i)]>=stats.daily_from_day&&keys[size_t(i)]<=today);
+        if(monthly&&out.bars[size_t(i)].available) {
+            const uint32_t first=month_starts[size_t(i)];
+            out.bars[size_t(i)].partial=std::max(first,stats.daily_from_day)>first||keys[size_t(i)]==month_key(today);
+        }
+    }
     for(const DailyUsage& d:stats.daily) {
         int slot=-1;
         for(int i=0;i<slots;++i)if(monthly?month_key(d.utc_day)==keys[size_t(i)]:d.utc_day==keys[size_t(i)]){slot=i;break;}

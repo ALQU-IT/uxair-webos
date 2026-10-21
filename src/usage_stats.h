@@ -27,7 +27,7 @@ struct UsageStats {
     void reset();
 };
 enum class UsagePeriod { Days7=0,Days30=1,Months12=2 };
-struct UsageBar { std::string label; uint64_t mirror_ms=0,audio_ms=0; bool available=false; };
+struct UsageBar { std::string label; uint64_t mirror_ms=0,audio_ms=0; bool available=false,partial=false; };
 struct UsageSummary {
     uint64_t mirror_ms=0,audio_ms=0,mirror_sessions=0,audio_sessions=0;
     std::vector<UsageBar> bars;
@@ -38,4 +38,6 @@ size_t usage_storage_bytes(const std::string& path);
 UsageSummary summarize_usage(const UsageStats& stats,UsagePeriod period,uint32_t today_utc_day);
 uint32_t usage_utc_day(uint64_t utc_seconds);
 const char *usage_period_name(UsagePeriod period);
+std::string usage_axis_label(uint64_t milliseconds);
+unsigned usage_mirror_percent(uint64_t mirror_ms,uint64_t audio_ms);
 const char *session_kind_name(SessionKind kind);

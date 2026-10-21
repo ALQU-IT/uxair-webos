@@ -20,19 +20,20 @@ int main() {
     assert(visible_row_first(50,102,5)==48);
     assert(visible_row_first(101,102,5)==97);
     const HistoryUiLayout history=history_ui_layout(1920,1080);
-    assert(history.chart_y==480&&history.list_y==777);
+    assert(history.card_top==216&&history.chart_y==416&&history.chart_h==208);
+    assert(history.daily_width>history.content_width/2);
+    assert(history.panel_x+history.daily_width+history.chart_gap+
+        history.content_width-history.daily_width-history.chart_gap==1920-48);
     assert(history.list_y+5*history.row_h<=history.reset_y-4);
-    assert(history.period_x+history.period_w<=1920&&history.reset_x+history.reset_w<=1920);
-    assert(history_period_hit(history,history.period_x+history.period_w/2,history.period_y+history.period_h/2));
-    assert(!history_period_hit(history,history.period_x-1,history.period_y+10));
-    assert(history_session_hit(history,history.panel_x+20,history.list_y+5,6,0)==1);
-    assert(history_session_hit(history,history.panel_x+20,history.list_y+4*history.row_h+5,6,0)==5);
+    assert(history.panel_x+history.content_width==1920-48&&history.reset_x+history.reset_w<=1920);
+    assert(history_session_hit(history,history.panel_x+20,history.list_y+5,4,0)==0);
+    assert(history_session_hit(history,history.panel_x+20,history.list_y+4*history.row_h+5,6,0)==4);
     assert(history_session_hit(history,history.panel_x+20,history.list_y+5*history.row_h+5,6,0)==-1);
-    assert(history_session_hit(history,history.panel_x+20,history.list_y+5,6,5)==2);
+    assert(history_session_hit(history,history.panel_x+20,history.list_y+4*history.row_h+5,6,5)==5);
+    assert(history_session_hit(history,history.panel_x+20,history.list_y+4*history.row_h+5,100,99)==99);
     assert(history_session_hit(history,history.panel_x+20,history.list_y,0,0)==-1);
     assert(history_reset_hit(history,history.reset_x+20,history.reset_y));
     assert(!history_reset_hit(history,history.reset_x+history.reset_w+1,history.reset_y));
-    ui.begin(UiDialogKind::HistoryPeriod,0);assert(ui.back()&&ui.dialog==UiDialogKind::None);
     ui.begin(UiDialogKind::ResetHistory,0);ui.move_choice(1,2);assert(ui.confirm()==1);
     assert(ui.back()&&ui.page==UiPage::Mirroring);
     ui.begin(UiDialogKind::FrameRate,0);ui.move_choice(1,2);assert(ui.confirm()==1);

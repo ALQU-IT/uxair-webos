@@ -16,6 +16,14 @@ int main() {
     const std::string root(dir),path=root+"/usage-v1";
     UsageStats empty;assert(!load_usage_stats(path,empty)&&!empty.storage_corrupt);
     assert(summarize_usage(empty,UsagePeriod::Days7,20000).bars.size()==7);
+    assert(usage_axis_label(12500)=="13s");
+    assert(usage_axis_label(250)=="250ms");
+    assert(usage_axis_label(900000)=="15m");
+    assert(usage_axis_label(5400000)=="2h");
+    assert(usage_mirror_percent(0,0)==0);
+    assert(usage_mirror_percent(1,2)==33&&usage_mirror_percent(2,1)==67);
+    const unsigned mirror_pct=usage_mirror_percent(1234567,7654321);
+    assert(mirror_pct+(100-mirror_pct)==100);
 
     // A session crossing UTC new year contributes to both daily buckets.
     UsageStats cross;cross.daily_from_day=usage_utc_day(1704067190);
@@ -24,6 +32,13 @@ int main() {
     assert(cross.daily[0].utc_day+1==cross.daily[1].utc_day);
     assert(cross.daily[0].mirror_ms==10000&&cross.daily[1].mirror_ms==10000);
     assert(cross.daily[0].mirror_sessions==1&&cross.daily[1].mirror_sessions==1);
+    UsageSummary boundary=summarize_usage(cross,UsagePeriod::Months12,usage_utc_day(1704067200));
+    bool saw_dec=false,saw_jan=false;
+    for(const auto& bar:boundary.bars) {
+        if(bar.label=="Dec") {saw_dec=true;assert(bar.available&&bar.partial&&bar.mirror_ms==10000);}
+        if(bar.label=="Jan") {saw_jan=true;assert(bar.available&&bar.partial&&bar.mirror_ms==10000);}
+    }
+    assert(saw_dec&&saw_jan);
 
     // Recent history is bounded at 100 while lifetime counters continue.
     UsageStats many;many.daily_from_day=usage_utc_day(1700000000);
@@ -46,7 +61,7 @@ int main() {
     UsageStats leap;leap.daily_from_day=leap_day;
     DailyUsage leap_record;leap_record.utc_day=leap_day;leap_record.mirror_ms=86400000;leap.daily.push_back(leap_record);
     UsageSummary leap_month=summarize_usage(leap,UsagePeriod::Months12,usage_utc_day(1709251200)); // 2024-03-01
-    bool found_february=false;for(const auto& bar:leap_month.bars)if(bar.label=="Feb"){found_february=true;assert(bar.available&&bar.mirror_ms==86400000);}
+    bool found_february=false;for(const auto& bar:leap_month.bars)if(bar.label=="Feb"){found_february=true;assert(bar.available&&bar.partial&&bar.mirror_ms==86400000);}
     assert(found_february&&leap_month.bars.back().label=="Mar");
     UsageSummary leap_week=summarize_usage(leap,UsagePeriod::Days7,usage_utc_day(1709251200));
     assert(leap_week.bars.back().available&&leap_week.bars.back().mirror_ms==0); // zero-use current day is distinct from unavailable dates

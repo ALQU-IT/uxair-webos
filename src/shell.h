@@ -12,10 +12,11 @@ struct UiRow {
     UiRow(const std::string& l,const std::string& v,const std::string& n,bool e=true)
         : label(l),value(v),note(n),enabled(e) {}
 };
-struct UiHistoryBar { std::string label; uint64_t mirror_ms=0,audio_ms=0; bool available=false; };
+struct UiHistoryBar { std::string label; uint64_t mirror_ms=0,audio_ms=0; bool available=false,partial=false; };
 struct UiHistoryData {
-    std::string period,summary,total_time,average,mirror_time,music_time,storage;
-    std::vector<UiHistoryBar> bars;
+    std::string summary,total_time,average,mirror_time,music_time,storage;
+    std::vector<UiHistoryBar> daily_bars,monthly_bars;
+    unsigned mirror_percent=0,audio_percent=0;
     size_t session_count=0; bool empty=true;
 };
 struct UiDialog {

@@ -7,8 +7,8 @@ enum class DiagnosticsMode { Off, Compact, Detailed };
 enum class MirrorCodec { H264, ExperimentalHevc };
 
 struct Settings {
-    int width = 1280;
-    int height = 720;
+    int width = 1920;
+    int height = 1080;
     int max_fps = 30;
     DiagnosticsMode diagnostics = DiagnosticsMode::Off;
     MirrorCodec codec = MirrorCodec::H264;

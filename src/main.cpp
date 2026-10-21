@@ -64,7 +64,16 @@ int main() {
         }
     }
     Settings settings;
-    if(load_settings(state_dir+"/settings-v1",settings)) fprintf(stderr,"[settings] loaded quality=%dx%d/%d codec=%s hdr10-pipeline=disabled diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.codec==MirrorCodec::ExperimentalHevc?"experimental-HEVC":"H264",diagnostics_mode_name(settings.diagnostics));
+    const std::string settings_path=state_dir+"/settings-v1";
+    if(load_settings(settings_path,settings)) {
+        fprintf(stderr,"[settings] loaded quality=%dx%d/%d codec=%s hdr10-pipeline=disabled diagnostics=%s\n",settings.width,settings.height,settings.max_fps,settings.codec==MirrorCodec::ExperimentalHevc?"experimental-HEVC":"H264",diagnostics_mode_name(settings.diagnostics));
+    } else {
+        struct stat saved_settings;
+        if(stat(settings_path.c_str(),&saved_settings)==0) {
+            settings.width=1280;settings.height=720;settings.max_fps=30;settings.codec=MirrorCodec::H264;
+            fprintf(stderr,"[settings] saved settings invalid; preserving file and using safe H264 720p/30 fallback\n");
+        } else fprintf(stderr,"[settings] no saved profile; using factory H264 1080p/30 defaults\n");
+    }
     UsageStats usage;
     if(!load_usage_stats(state_dir+"/usage-v1",usage) && usage.storage_corrupt)fprintf(stderr,"[stats] usage history is corrupt or oversized; preserving it until explicit reset\n");
     Receiver receiver;
@@ -78,8 +87,8 @@ int main() {
             set_mirror_fps(settings,30);
             receiver_started=receiver.start(state_dir,settings);
             if(receiver_started) {
-                if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] recovery save failed\n");
-                receiver.show("Quality startup failed. Restored H.264 720p; reconnect sender.");
+                fprintf(stderr,"[settings] startup fallback active for this run; saved preference retained\n");
+                receiver.show("Quality startup failed. H.264 720p active for this run; saved preference retained.");
             } else receiver.stop();
         }
         if(!receiver_started) {
@@ -105,7 +114,6 @@ int main() {
     UiPage& page=nav.page;
     int& focus=nav.focus;
     bool ui_visible=true,session_success=false,donation_open=false;
-    int history_period=int(UsagePeriod::Days7);
     UiHistoryData history_data;
     bool history_dirty=true;
     size_t history_storage=usage_storage_bytes(state_dir+"/usage-v1");
@@ -193,7 +201,7 @@ int main() {
             set_mirror_resolution(settings,1280,720);
             set_mirror_fps(settings,30);
             if(activate_profile(settings)) {
-                if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] fallback save failed\n");
+                fprintf(stderr,"[settings] HEVC fallback is session-only; saved preference retained\n");
                 receiver.show(starfish_load_failure?"Starfish Load failed. H.264 720p active; reconnect sender.":"HEVC failed. H.264 720p active; reconnect sender.");
             } else {
                 settings=previous;
@@ -206,8 +214,7 @@ int main() {
             Settings previous=settings;
             set_mirror_fps(settings,30);
             if(activate_profile(settings)) {
-                if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] 30 FPS recovery save failed\n");
-                fprintf(stderr,"[settings] decoder recovery lowered advertised max FPS to 30\n");
+                fprintf(stderr,"[settings] decoder recovery lowered advertised max FPS to 30 for this run; saved preference retained\n");
                 receiver.show(starfish_load_failure?"Starfish Load failed. Restored 30 FPS; reconnect sender.":"60 FPS failed. Restored 30 FPS; reconnect sender.");
             } else {
                 settings=previous;
@@ -221,7 +228,7 @@ int main() {
         }
         ProfileSwitchResult result=switch_mirror_profile(settings,1280,720,activate_profile);
         if(result==ProfileSwitchResult::Applied) {
-            if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] recovery save failed\n");
+            fprintf(stderr,"[settings] 720p recovery is session-only; saved preference retained\n");
             receiver.show(starfish_load_failure?"Starfish Load failed. Restored 720p; reconnect sender.":"1080p decoder failed. Restored 720p; reconnect sender.");
             fprintf(stderr,"[settings] 1080p decoder failed; restored 720p advertisement\n");
         } else receiver.show(starfish_load_failure?"Starfish Load failed. Adjust Settings or reconnect.":"Decoder failed. Restart app and select 720p.");
@@ -274,7 +281,6 @@ int main() {
                 "Protected or unsupported sessions are not decoded"));
             rows.push_back(UiRow("Mirroring audio",receiver.mirror?"Active":"Idle","Stereo audio during screen mirroring"));
         } else if(which==UiPage::History) {
-            rows.push_back(UiRow("Usage period",usage_period_name(UsagePeriod(history_period)),"Select to view 7 days, 30 days or 12 months"));
             for(const SessionSummary& session:usage.recent) {
                 std::string kind=session.kind==SessionKind::Audio?"AirPlay music":
                     std::string(session_kind_name(session.kind))+" - "+(session.codec==2?"HEVC":"H.264")+" - "+
@@ -314,9 +320,6 @@ int main() {
                 d.current=(receiver.audio_delay_ms.load()+1000)/25;
                 d.title="Audio delay";d.description="Choose before connecting; 25 ms steps.";
                 for(int ms=-1000;ms<=1000;ms+=25)d.choices.push_back(std::to_string(ms)+" ms");break;
-            case UiDialogKind::HistoryPeriod:
-                d.title="Usage history period";d.description="Choose the chart period.";
-                d.choices={"Last 7 days","Last 30 days","Last 12 months"};break;
             case UiDialogKind::ResetHistory:
                 d.title="Reset usage history?";d.description="This permanently deletes saved sessions and usage statistics. Pairing and settings will not be affected.";
                 d.choices={"Cancel","Reset history"};break;
@@ -333,18 +336,22 @@ int main() {
             if(current_storage!=history_storage){history_storage=current_storage;history_dirty=true;}
         }
         if(page==UiPage::History && history_dirty) {
-            UsagePeriod period=UsagePeriod(history_period);
-            UsageSummary summary=summarize_usage(usage,period,usage_utc_day(uint64_t(time(nullptr))));
-            history_data=UiHistoryData();history_data.period=usage_period_name(period);
+            const uint32_t today=usage_utc_day(uint64_t(time(nullptr)));
+            UsageSummary thirty=summarize_usage(usage,UsagePeriod::Days30,today);
+            UsageSummary months=summarize_usage(usage,UsagePeriod::Months12,today);
+            history_data=UiHistoryData();
             history_data.session_count=usage.recent.size();history_data.empty=usage.recent.empty();
             uint64_t sessions=usage.successful_sessions;
             history_data.summary=std::to_string(sessions)+" completed";
             history_data.total_time=duration_text(usage.playback_ms);
             history_data.average=sessions?duration_text(usage.playback_ms/sessions):"No usage";
-            history_data.mirror_time=duration_text(summary.mirror_ms);
-            history_data.music_time=duration_text(summary.audio_ms);
+            history_data.mirror_time=duration_text(thirty.mirror_ms);
+            history_data.music_time=duration_text(thirty.audio_ms);
+            history_data.mirror_percent=usage_mirror_percent(thirty.mirror_ms,thirty.audio_ms);
+            history_data.audio_percent=(thirty.mirror_ms||thirty.audio_ms)?100-history_data.mirror_percent:0;
             history_data.storage=usage.storage_corrupt?"History file unreadable; reset to restart":"History storage "+std::to_string((history_storage+1023)/1024)+" KB | "+std::to_string(usage.recent.size())+"/100 sessions | 365d";
-            for(const UsageBar& bar:summary.bars){UiHistoryBar b;b.label=bar.label;b.mirror_ms=bar.mirror_ms;b.audio_ms=bar.audio_ms;b.available=bar.available;history_data.bars.push_back(b);}
+            for(const UsageBar& bar:thirty.bars){UiHistoryBar b;b.label=bar.label;b.mirror_ms=bar.mirror_ms;b.audio_ms=bar.audio_ms;b.available=bar.available;b.partial=bar.partial;history_data.daily_bars.push_back(b);}
+            for(const UsageBar& bar:months.bars){UiHistoryBar b;b.label=bar.label;b.mirror_ms=bar.mirror_ms;b.audio_ms=bar.audio_ms;b.available=bar.available;b.partial=bar.partial;history_data.monthly_bars.push_back(b);}
             history_dirty=false;
         }
         shell.page(page,subtitle,rows,focus,footer,
@@ -474,7 +481,6 @@ int main() {
                     if(!save_settings(state_dir+"/settings-v1",settings))fprintf(stderr,"[settings] save failed\n");
                 } else if(kind==UiDialogKind::AudioDelay && choice>=0 && choice<=80 && receiver.idle_for_profile_change())
                     receiver.adjust_audio_delay(choice*25-1000-receiver.audio_delay_ms.load());
-                else if(kind==UiDialogKind::HistoryPeriod && choice>=0 && choice<3) {history_period=choice;history_dirty=true;}
                 else if(kind==UiDialogKind::ResetHistory && choice==1) {
                     usage.reset();if(!save_usage_stats(state_dir+"/usage-v1",usage)){fprintf(stderr,"[stats] reset save failed\n");receiver.show("History cleared in memory, but could not save the reset.");}history_storage=usage_storage_bytes(state_dir+"/usage-v1");history_dirty=true;
                 }
@@ -485,8 +491,7 @@ int main() {
                     else if(page==UiPage::Mirroring && focus==1)nav.begin(UiDialogKind::Codec,settings.codec==MirrorCodec::ExperimentalHevc?1:0);
                     else if(page==UiPage::Mirroring && focus==2)nav.begin(UiDialogKind::FrameRate,settings.max_fps==60?1:0);
                     else if(page==UiPage::Diagnostics && focus==0)nav.begin(UiDialogKind::Overlay,int(settings.diagnostics));
-                    else if(page==UiPage::History && focus==0)nav.begin(UiDialogKind::HistoryPeriod,history_period);
-                    else if(page==UiPage::History && focus==int(usage.recent.size())+1)nav.begin(UiDialogKind::ResetHistory,0);
+                    else if(page==UiPage::History && focus==int(usage.recent.size()))nav.begin(UiDialogKind::ResetHistory,0);
                     else if(page==UiPage::Media && focus==0)nav.begin(UiDialogKind::AudioDelay,(receiver.audio_delay_ms.load()+1000)/25);
                     else if(page==UiPage::System && focus==3)donation_open=true;
                 }

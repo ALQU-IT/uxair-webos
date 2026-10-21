@@ -32,7 +32,7 @@ int main() {
     assert(active_ui_modal(true,true)==UiModal::Pairing);
 
     UiNavigation nav;
-    nav.category(3);
+    nav.category(4);
     nav.move_row(1,5);
     assert(nav.page==UiPage::System && nav.focus==1);
     assert(nav.back() && nav.page==UiPage::Mirroring);

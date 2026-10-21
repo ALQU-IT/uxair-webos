@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <unistd.h>
 
@@ -16,14 +17,20 @@ int main() {
     { std::ofstream keys(keys_path.c_str());keys<<"pairing-data-must-survive\n"; }
 
     Settings settings;
+    assert(settings.width==1920&&settings.height==1080&&settings.max_fps==30&&settings.codec==MirrorCodec::H264);
+    const AdvertisedCapabilities factory=advertised_capabilities(settings);
+    assert(factory.width==1920&&factory.height==1080&&factory.max_fps==30&&!factory.hevc);
+    Settings fresh_load;
+    assert(!load_settings(root+"/missing-settings",fresh_load));
+    assert(fresh_load.width==1920&&fresh_load.height==1080&&fresh_load.max_fps==30&&fresh_load.codec==MirrorCodec::H264);
     assert(supported_mirror_resolution(1280,720));
     assert(supported_mirror_resolution(1920,1080));
     assert(supported_mirror_resolution(3840,2160));
     assert(supported_mirror_fps(30) && supported_mirror_fps(60) && !supported_mirror_fps(24));
     assert(input_fits_mirror_profile(settings,1280,720));
     assert(input_fits_mirror_profile(settings,720,1280)); // portrait orientation
-    assert(!input_fits_mirror_profile(settings,1920,1080));
-    assert(!input_fits_mirror_profile(settings,1080,1920));
+    assert(input_fits_mirror_profile(settings,1920,1080));
+    assert(input_fits_mirror_profile(settings,1080,1920));
     assert(set_mirror_resolution(settings,3840,2160));
     assert(settings.codec==MirrorCodec::ExperimentalHevc);
     assert(settings.width==3840 && settings.height==2160);
@@ -158,6 +165,27 @@ int main() {
     assert(load_settings(settings_path,loaded));
     assert(loaded.width==1280 && loaded.height==720); // safe recovery profile
 
+    Settings upgrade_profiles[6];
+    upgrade_profiles[0].width=1280;upgrade_profiles[0].height=720;
+    upgrade_profiles[1]=upgrade_profiles[0];upgrade_profiles[1].codec=MirrorCodec::ExperimentalHevc;upgrade_profiles[1].max_fps=60;
+    upgrade_profiles[2].width=1920;upgrade_profiles[2].height=1080;upgrade_profiles[2].max_fps=60;
+    upgrade_profiles[3]=upgrade_profiles[2];upgrade_profiles[3].codec=MirrorCodec::ExperimentalHevc;upgrade_profiles[3].max_fps=30;
+    upgrade_profiles[4].width=3840;upgrade_profiles[4].height=2160;upgrade_profiles[4].codec=MirrorCodec::ExperimentalHevc;
+    upgrade_profiles[5]=upgrade_profiles[4];upgrade_profiles[5].max_fps=60;
+    for(size_t i=0;i<6;++i) {
+        assert(save_settings(settings_path,upgrade_profiles[i]));
+        Settings upgraded;
+        assert(load_settings(settings_path,upgraded));
+        assert(upgraded.width==upgrade_profiles[i].width&&upgraded.height==upgrade_profiles[i].height);
+        assert(upgraded.codec==upgrade_profiles[i].codec&&upgraded.max_fps==upgrade_profiles[i].max_fps);
+    }
+    const std::string corrupt_settings="NOT_UXPLAY_SETTINGS\nresolution=4k\nfps=30\n";
+    {std::ofstream bad(settings_path.c_str());bad<<corrupt_settings;}
+    Settings retained;retained.width=1280;retained.height=720;retained.max_fps=60;
+    assert(!load_settings(settings_path,retained));
+    assert(retained.width==1280&&retained.height==720&&retained.max_fps==60);
+    {std::ifstream bad(settings_path.c_str());std::string contents((std::istreambuf_iterator<char>(bad)),std::istreambuf_iterator<char>());assert(contents==corrupt_settings);}
+
     UsageStats usage;
     for(unsigned i=0;i<18;++i) {
         SessionSummary s;
@@ -169,14 +197,14 @@ int main() {
     }
     assert(usage.successful_sessions==18 && usage.mirror_sessions==18);
     assert(usage.audio_sessions==0 && usage.direct_sessions==0);
-    assert(usage.recent.size()==16 && usage.recent.front().started_utc==1700000017);
-    assert(usage.recent.back().started_utc==1700000002);
+    assert(usage.recent.size()==18 && usage.recent.front().started_utc==1700000017);
+    assert(usage.recent.back().started_utc==1700000000);
     assert(usage.packet_drops==1 && usage.video_frame_drops==1 && usage.decoder_errors==1 && usage.session_errors==1);
     assert(save_usage_stats(usage_path,usage));
     UsageStats restored;
     assert(load_usage_stats(usage_path,restored));
     assert(restored.successful_sessions==18 && restored.playback_ms==usage.playback_ms);
-    assert(restored.recent.size()==16 && restored.recent.front().feed_frames==29);
+    assert(restored.recent.size()==18 && restored.recent.front().feed_frames==29);
     restored.reset();assert(save_usage_stats(usage_path,restored));
     UsageStats empty;assert(load_usage_stats(usage_path,empty));
     assert(empty.successful_sessions==0 && empty.recent.empty());

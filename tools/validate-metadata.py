@@ -91,8 +91,8 @@ def main():
     text = '\n'.join(p.read_text() for p in tracked_sources)
     if 'org.webosbrew.uxplaylg' in text or 'UxPlay LG' in text:
         fail('legacy identity remains in application source')
-    if 'Daniel Filho' in (ROOT / 'src/main.cpp').read_text():
-        fail('personal name must not appear in application UI; use the upstream handle')
+    if any(text not in (ROOT / 'src/main.cpp').read_text(encoding='utf-8') for text in ('Matej Skuhala (@depius)', 'Based on UxPlay by FDH2; uxplay-webOS by @danlflh')):
+        fail('About page must identify the UxAir developer and preserve both upstream credits')
     for size, path in [(80, ROOT / 'packaging/icon.png'), (130, ROOT / 'packaging/largeIcon.png'), (256, ROOT / 'assets/uxair-icon-256.png'), (512, ROOT / 'assets/uxair-icon-512.png')]:
         if not path.is_file():
             fail(f'missing {size}px UxAir icon asset')
@@ -117,6 +117,14 @@ def main():
         fail('README donation badge must link to the confirmed creator profile')
     if not (ROOT / 'assets/bmc-qr.bmp').is_file():
         fail('missing bundled donation QR bitmap')
+    coffee = ROOT / 'assets/bmc-icon.bmp'
+    if not coffee.is_file():
+        fail('missing SDL-compatible Buy Me a Coffee icon')
+    icon = coffee.read_bytes()
+    if icon[:2] != b'BM' or int.from_bytes(icon[18:22], 'little') != 120 or int.from_bytes(icon[22:26], 'little', signed=True) != 120:
+        fail('Buy Me a Coffee icon must be a square 120x120 SDL bitmap')
+    if not (ROOT / 'assets/bmc-icon-source.png').is_file():
+        fail('missing original supplied Buy Me a Coffee artwork')
     print(f'PASS: {EXPECTED_NAME} {version} metadata is consistent')
 
 if __name__ == '__main__':

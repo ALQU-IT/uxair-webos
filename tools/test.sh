@@ -19,13 +19,20 @@ if [[ "${1:-}" == "--diagnostics-only" ]]; then
 fi
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/state_test.cpp src/settings.cpp src/usage_stats.cpp -o build/tests/state-test
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc tests/usage_stats_test.cpp src/usage_stats.cpp -o build/tests/usage-stats-test
 build/tests/state-test
+build/tests/usage-stats-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/media_rate_test.cpp src/settings.cpp -o build/tests/media-rate-test
 build/tests/media-rate-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/ui_navigation_test.cpp src/ui_navigation.cpp -o build/tests/ui-navigation-test
 build/tests/ui-navigation-test
+python3 tests/history_dashboard_test.py
+c++ -std=c++11 -g -fsanitize=address,undefined -Isrc -Itests/sdl_stub $(pkg-config --cflags sdl2 SDL2_ttf) \
+  tests/history_render_test.cpp src/shell.cpp src/input.cpp src/ui_navigation.cpp src/usage_stats.cpp \
+  $(pkg-config --libs sdl2 SDL2_ttf) -o build/tests/history-render-test
+timeout 30s build/tests/history-render-test
 c++ -std=c++11 -g -fsanitize=address,undefined -Isrc \
   tests/pairing_ui_test.cpp src/ui_navigation.cpp -o build/tests/pairing-ui-test
 build/tests/pairing-ui-test
@@ -34,6 +41,7 @@ c++ -std=c++11 -g -fsanitize=address,undefined -pthread -Isrc \
 build/tests/pairing-registration-test
 python3 tests/pairing_render_test.py
 python3 tests/donation_qr_test.py
+python3 tests/donation_icon_test.py
 python3 tests/pairing_secret_log_test.py
 cc -std=c11 -D_POSIX_C_SOURCE=200809L -g -fsanitize=address,undefined -Isrc \
   tests/direct_request_diag_test.c src/direct_request_diag.c -o build/tests/direct-request-diag-test

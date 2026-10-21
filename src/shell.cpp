@@ -1,5 +1,6 @@
 #include "shell.h"
 #include "identity.h"
+#include "usage_stats.h"
 #include <SDL_webOS.h>
 #include <SDL_ttf.h>
 #include <csignal>
@@ -84,6 +85,9 @@ bool Shell::open() {
     SDL_Surface *qr=SDL_LoadBMP((app_directory()+"/bmc-qr.bmp").c_str());
     if(qr) {donation_qr_=SDL_CreateTextureFromSurface(renderer,qr);SDL_FreeSurface(qr);}
     if(!donation_qr_)fprintf(stderr,"[donation] bundled QR image unavailable: %s\n",SDL_GetError());
+    SDL_Surface *coffee=SDL_LoadBMP((app_directory()+"/bmc-icon.bmp").c_str());
+    if(coffee) {donation_icon_=SDL_CreateTextureFromSurface(renderer,coffee);SDL_FreeSurface(coffee);}
+    if(!donation_icon_)fprintf(stderr,"[donation] bundled coffee icon unavailable: %s\n",SDL_GetError());
     return true;
 }
 void Shell::transparent() {
@@ -94,6 +98,7 @@ Action Shell::action() {
     SDL_Event e;
     static Uint32 last_motion_log_ms = 0;
     pointer_select_ = false;
+    auto update_pointer=[&](int x,int y) {if(!pointer_valid_||x!=pointer_x_||y!=pointer_y_)pointer_moved_=true;pointer_x_=x;pointer_y_=y;pointer_valid_=true;};
     while (SDL_PollEvent(&e)) {
         const Uint32 now = SDL_GetTicks();
         if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
@@ -103,19 +108,21 @@ Action Shell::action() {
                         static_cast<long>(e.key.keysym.sym),
                         static_cast<int>(e.key.keysym.scancode), e.key.repeat);
         } else if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
+            update_pointer(e.button.x,e.button.y);
             fprintf(stderr,"[input] mouse %s button=%u clicks=%u x=%d y=%d\n",
                     e.type == SDL_MOUSEBUTTONDOWN ? "down" : "up",
                     e.button.button, e.button.clicks, e.button.x, e.button.y);
         } else if (e.type == SDL_MOUSEMOTION &&
                    (last_motion_log_ms == 0 || Uint32(now - last_motion_log_ms) >= 5000)) {
+            update_pointer(e.motion.x,e.motion.y);
             fprintf(stderr,"[input] pointer motion x=%d y=%d buttons=%u\n",
                     e.motion.x, e.motion.y, e.motion.state);
             last_motion_log_ms = now;
-        }
+        } else if(e.type==SDL_MOUSEMOTION) update_pointer(e.motion.x,e.motion.y);
         const Action mapped = input_.map(e, now);
         if (mapped != Action::None) {
             if (mapped==Action::Select && e.type==SDL_MOUSEBUTTONDOWN) {
-                pointer_select_=true;pointer_x_=e.button.x;pointer_y_=e.button.y;
+                pointer_select_=true;update_pointer(e.button.x,e.button.y);
             }
             return mapped;
         }
@@ -126,11 +133,12 @@ bool Shell::pointer_select(int& x, int& y) const {
     if (!pointer_select_) return false;
     x=pointer_x_;y=pointer_y_;return true;
 }
+bool Shell::take_pointer_motion() {bool moved=pointer_moved_;pointer_moved_=false;return moved;}
 static int dialog_first(const UiDialog& dialog) {
     int count=int(dialog.choices.size()),visible=std::min(5,count);
     return std::max(0,std::min(dialog.selected-2,count-visible));
 }
-UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog) const {
+UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog, int selected, UiPage page_id) const {
     int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
     if(dialog) {
         int visible=std::min(5,int(dialog->choices.size()));
@@ -140,11 +148,21 @@ UiHit Shell::hit_test(int x, int y, int row_count, const UiDialog *dialog) const
             return {UiHitKind::Cancel,-1};
         return {UiHitKind::DialogChoice,dialog_first(*dialog)+(y-top-124)/72};
     }
-    int top=h/4,row_height=std::max(66,h/11),sidebar=w/4;
+    int top=(page_id==UiPage::System?h/5:h/4),row_height=std::max(66,h/11),sidebar=w/4;
     if(x>=0 && x<sidebar && y>=top && y<top+5*row_height)
         return {UiHitKind::Category,(y-top)/row_height};
-    if(x>=sidebar+24 && x<w-24 && y>=top && y<top+std::min(row_count,7)*row_height)
-        return {UiHitKind::Row,(y-top)/row_height};
+    if(x>=sidebar+24 && x<w-24) {
+        if(page_id==UiPage::History) {
+            const HistoryUiLayout layout=history_ui_layout(w,h);
+            const int count=std::max(0,row_count-1);
+            const int session=history_session_hit(layout,x,y,count,selected);
+            if(session>=0)return {UiHitKind::Row,session};
+            if(history_reset_hit(layout,x,y))return {UiHitKind::Row,row_count-1};
+            return {};
+        }
+        int visible=std::min(row_count,7),first=visible_row_first(selected,row_count,visible);
+        if(y>=top && y<top+visible*row_height) return {UiHitKind::Row,first+(y-top)/row_height};
+    }
     return {};
 }
 bool Shell::pump() {Action a=action();return a!=Action::Back&&a!=Action::Exit;}
@@ -166,7 +184,115 @@ void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *fon
     if(texture) { SDL_RenderCopy(renderer,texture,&source,&rect); SDL_DestroyTexture(texture); }
     SDL_FreeSurface(surface);
 }
-void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer,const UiDialog *dialog,const std::string& pin,bool donation_open) {
+void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& rows,int selected,int panel,int w,int h) {
+    const HistoryUiLayout layout=history_ui_layout(w,h);
+    const int content=layout.content_width,top=layout.card_top,card_gap=16,card_h=74;
+    auto card=[&](int x,int y,int cw,const char *label,const std::string& value) {
+        SDL_Rect r={x,y,cw,card_h};fill_round_rect(renderer,r,12,uxair_navy);
+        text_at(label,x+16,y+5,cw-32,small_,{157,184,201,255});
+        text_at(value,x+16,y+36,cw-32,font_,uxair_text);
+    };
+    const int third=(content-card_gap*2)/3;
+    card(panel,top,third,"LIFETIME SESSIONS",data.summary);
+    card(panel+third+card_gap,top,third,"LIFETIME PLAYBACK",data.total_time);
+    card(panel+2*(third+card_gap),top,third,"AVERAGE SESSION",data.average);
+    const int second_y=top+86;
+    card(panel,second_y,content/2-card_gap/2,"LAST 30 DAYS - SCREEN MIRRORING",data.mirror_time);
+    card(panel+content/2+card_gap/2,second_y,content/2-card_gap/2,"LAST 30 DAYS - AIRPLAY MUSIC",data.music_time);
+    auto draw_chart=[&](int x,int y,int cw,int ch,const std::vector<UiHistoryBar>& bars,const std::string& title,bool monthly) {
+        fill_round_rect(renderer,{x,y,cw,ch},12,{25,39,61,255});
+        uint64_t maximum=0;
+        for(const auto& b:bars)if(b.available) {
+            const uint64_t total=b.audio_ms>UINT64_MAX-b.mirror_ms?UINT64_MAX:b.mirror_ms+b.audio_ms;
+            maximum=std::max(maximum,total);
+        }
+        const uint64_t axis=usage_chart_axis(maximum);
+        const uint64_t unit=maximum>=3600000?3600000:maximum>=60000?60000:1000;
+        const int text_h=TTF_FontHeight(small_),padding=16;
+        text_at(title,x+padding,y+8,cw-2*padding,small_,uxair_text);
+        // Reserve two label rows; one shared legend below the cards explains both charts.
+        int axis_width=0;
+        for(int tick=0;tick<=2;++tick) {
+            int tw=0;TTF_SizeUTF8(small_,usage_axis_label(tick==2?axis:tick?axis/2:0,unit).c_str(),&tw,nullptr);
+            axis_width=std::max(axis_width,tw);
+        }
+        const int px=x+padding+axis_width+10,py=y+text_h+26,pw=cw-(px-x)-padding;
+        const int base=y+ch-2*text_h-12,plot_h=std::max(1,base-py);
+        for(int tick=0;tick<=2;++tick) {
+            const int gy=base-plot_h*tick/2;
+            SDL_SetRenderDrawColor(renderer,54,70,88,255);SDL_RenderDrawLine(renderer,px,gy,px+pw-1,gy);
+            text_at(usage_axis_label(tick==2?axis:tick?axis/2:0,unit),x+padding,gy-text_h/2,axis_width,small_,{157,178,194,255});
+        }
+        const int n=int(bars.size());
+        SDL_Rect previous_clip;SDL_RenderGetClipRect(renderer,&previous_clip);
+        const bool had_clip=SDL_RenderIsClipEnabled(renderer)==SDL_TRUE;
+        const SDL_Rect plot={px,py,pw,plot_h};SDL_RenderSetClipRect(renderer,&plot);
+        for(int i=0;i<n;++i) {
+            const auto& b=bars[size_t(i)];
+            const int left=px+pw*i/n,right=px+pw*(i+1)/n;
+            const int bw=std::max(1,std::min(right-left-3,monthly?22:14)),bx=(left+right-bw)/2;
+            if(b.future)continue;
+            if(!b.available) {SDL_SetRenderDrawColor(renderer,130,145,159,255);SDL_RenderDrawLine(renderer,bx,base-2,bx+bw-1,base-2);continue;}
+            const UsageBarHeights heights=usage_bar_heights(b.mirror_ms,b.audio_ms,axis,plot_h);
+            const int mh=heights.mirror,ah=heights.audio;
+            SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect mr={bx,base-mh,bw,mh};if(mh)SDL_RenderFillRect(renderer,&mr);
+            SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect ar={bx,base-mh-ah,bw,ah};if(ah)SDL_RenderFillRect(renderer,&ar);
+            if(b.partial)text_at("*",(left+right)/2-6,base-text_h,bw+12,small_,uxair_text);
+            if(!mh&&!ah) {SDL_SetRenderDrawColor(renderer,174,194,207,255);SDL_Rect zero={(left+right)/2-1,base-2,3,2};SDL_RenderFillRect(renderer,&zero);}
+        }
+        SDL_RenderSetClipRect(renderer,had_clip?&previous_clip:nullptr);
+        // Labels are independent of bar availability, so Jan/Dec and day 1/end never disappear.
+        for(int i=0;i<n;++i) {
+            const auto& b=bars[size_t(i)];
+            if(!monthly&&!b.current&&i!=0&&(i+1)%5!=0&&i!=n-1)continue;
+            if(!monthly&&!b.current&&i!=0&&i!=n-1&&
+               ((i>0&&bars[size_t(i-1)].current)||(i+1<n&&bars[size_t(i+1)].current)))continue;
+            // Avoid adjacent day 30/31 labels. The final calendar day takes priority.
+            if(!monthly&&!b.current&&i==n-2&&i!=0)continue;
+            const std::string label=b.label;
+            int tw=0;TTF_SizeUTF8(small_,label.c_str(),&tw,nullptr);
+            const int center=px+pw*(2*i+1)/(2*n);
+            const int tx=std::max(px,std::min(center-tw/2,x+cw-padding-tw));
+            const bool second_label_row=monthly?i%2!=0:b.current&&(i==1||i==n-2);
+            const int label_y=base+7+(second_label_row?text_h+1:0);
+            text_at(label,tx,label_y,x+cw-padding-tx,small_,b.current?uxair_accent:b.future?SDL_Color{116,133,148,255}:SDL_Color{171,190,204,255});
+        }
+    };
+    const int chart_y=layout.chart_y,chart_h=layout.chart_h;
+    draw_chart(panel,chart_y,layout.daily_width,chart_h,data.daily_bars,data.daily_title,false);
+    const int month_x=panel+layout.daily_width+layout.chart_gap;
+    draw_chart(month_x,chart_y,content-layout.daily_width-layout.chart_gap,chart_h,data.monthly_bars,data.monthly_title,true);
+    text_at("UTC · Blue label: current · * Partial history · — Unavailable · • Known zero · Blank: future",panel,chart_y+chart_h+7,content,small_,{157,178,194,255});
+    if(data.mirror_percent+data.audio_percent) {
+        text_at("Last 30 days - playback distribution",panel,layout.distribution_y,content/2,small_,uxair_text);
+        text_at("Screen mirroring  "+std::to_string(data.mirror_percent)+"%",panel+content/2,layout.distribution_y,content/4,small_,uxair_accent);
+        text_at("AirPlay music  "+std::to_string(data.audio_percent)+"%",panel+content*3/4,layout.distribution_y,content/4,small_,{145,211,181,255});
+    } else text_at("No playback yet",panel,layout.distribution_y,content,small_,{174,194,207,255});
+    const int dist_h=20;
+    SDL_Rect track={panel,layout.distribution_bar_y,content,dist_h};SDL_SetRenderDrawColor(renderer,47,65,85,255);SDL_RenderFillRect(renderer,&track);
+    const unsigned total_pct=data.mirror_percent+data.audio_percent;
+    const int mw=int(content*data.mirror_percent/100);
+    SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect m={panel,layout.distribution_bar_y,mw,dist_h};if(mw)SDL_RenderFillRect(renderer,&m);
+    SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect a={panel+mw,layout.distribution_bar_y,content-mw,dist_h};if(total_pct&&a.w)SDL_RenderFillRect(renderer,&a);
+    const int list_y=layout.list_y,row_h=layout.row_h;
+    text_at("Recent sessions",panel,layout.heading_y,content/2,font_,uxair_text);
+    text_at("STARTED (UTC)",panel+10,layout.heading_y+36,content*27/100,small_,{157,184,201,255});
+    text_at("DURATION",panel+content*30/100,layout.heading_y+36,content*15/100,small_,{157,184,201,255});
+    text_at("SESSION",panel+content*48/100,layout.heading_y+36,content*50/100,small_,{157,184,201,255});
+    const int count=std::max(0,int(rows.size())-1),visible=std::min(5,count),first=visible_row_first(std::max(0,selected),count,visible);
+    for(int i=0;i<visible;++i){int idx=first+i,y=list_y+i*row_h;
+        if(selected==idx){SDL_Rect f={panel-5,y-3,content,row_h-1};SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&f);}
+        const auto& r=rows[size_t(idx)];text_at(r.label,panel+10,y+4,content*27/100,small_,uxair_text);text_at(r.value,panel+content*30/100,y+4,content*15/100,small_,uxair_accent);text_at(r.note,panel+content*48/100,y+4,content*50/100,small_,{174,194,207,255});
+    }
+    if(count==0)text_at("No playback history yet.",panel+10,list_y+5,content-20,font_,{174,194,207,255});
+    int reset_index=int(rows.size())-1,reset_y=layout.reset_y;
+    SDL_Rect reset={layout.reset_x,reset_y-4,layout.reset_w,layout.reset_h};if(selected==reset_index|| (pointer_valid_&&history_reset_hit(layout,pointer_x_,pointer_y_))){fill_round_rect(renderer,reset,8,{48,78,110,255});}
+    const SDL_Color reset_border=selected==reset_index?uxair_accent:SDL_Color{90,112,132,255};
+    SDL_SetRenderDrawColor(renderer,reset_border.r,reset_border.g,reset_border.b,255);SDL_RenderDrawRect(renderer,&reset);
+    text_at("Reset history",panel+10,reset_y,160,small_,selected==reset_index?uxair_accent:uxair_text);
+    text_at(data.storage,panel+200,reset_y,w-panel-250,small_,{174,194,207,255});
+}
+void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<UiRow>& rows,int selected,const std::string& footer,const UiDialog *dialog,const std::string& pin,bool donation_open,const UiHistoryData *history) {
     int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
     SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(renderer,uxair_background.r,uxair_background.g,uxair_background.b,255);SDL_RenderClear(renderer);
@@ -175,17 +301,18 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
     SDL_SetRenderDrawColor(renderer,uxair_navy.r,uxair_navy.g,uxair_navy.b,255);SDL_RenderFillRect(renderer,&side);
     SDL_Rect accent={0,0,w,7};
     SDL_SetRenderDrawColor(renderer,uxair_accent.r,uxair_accent.g,uxair_accent.b,255);SDL_RenderFillRect(renderer,&accent);
-    const char *categories[]={"Video","Audio","Diagnostics","About"};
-    const char *titles[]={"Video","Audio","Diagnostics","About","Recent Sessions"};
+    const char *categories[]={"Video","Audio","History","Diagnostics","About"};
+    const char *titles[]={"Video","Audio","History","Diagnostics","About"};
     int index=int(page_id);if(index<0||index>4)index=0;
-    int category=index==4?2:index;
+    int category=index;
     text_at("UxAir",w/28,h/18,sidebar-40,large_,uxair_accent);
     text_at("AirPlay Receiver",w/28,h/8,sidebar-40,small_,{154,185,202,255});
     text_at(titles[index],panel,h/20,w-panel-35,large_,{239,247,249,255});
-    text_at(subtitle,panel,h/7,w-panel-35,font_,{154,185,202,255});
+    if(page_id!=UiPage::History&&page_id!=UiPage::System)
+        text_at(subtitle,panel,h/7,w-panel-35,font_,{154,185,202,255});
     const int top=h/4;
     const int row_height=std::max(66,h/11);
-    for(int i=0;i<4;++i) {
+    for(int i=0;i<5;++i) {
         int y=top+i*row_height;
         if(i==category) {
             SDL_Rect tab={14,y-5,sidebar-28,row_height-6};
@@ -195,8 +322,14 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
         }
         text_at(categories[i],30,y+12,sidebar-52,font_,i==category?SDL_Color{238,249,247,255}:SDL_Color{150,175,190,255});
     }
-    for(size_t i=0;i<rows.size() && i<7;++i) {
-        int y=top+int(i)*row_height;
+    if(page_id==UiPage::History && history) {
+        draw_history(*history,rows,selected,panel,w,h);
+    } else {
+        const size_t visible_rows=std::min<size_t>(rows.size(),7);
+        const int row_top=page_id==UiPage::System?h/5:top;
+        const int first_row=visible_row_first(selected,int(rows.size()),int(visible_rows));
+        for(size_t slot=0;slot<visible_rows;++slot) {
+        size_t i=size_t(first_row)+slot;int y=row_top+int(slot)*row_height;
         if(int(i)==selected) {
             SDL_Rect focus={panel-8,y-6,w-panel-24,row_height-5};
             SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&focus);
@@ -204,11 +337,26 @@ void Shell::page(UiPage page_id,const std::string& subtitle,const std::vector<Ui
             SDL_SetRenderDrawColor(renderer,uxair_accent.r,uxair_accent.g,uxair_accent.b,255);SDL_RenderFillRect(renderer,&marker);
         }
         const SDL_Color primary=rows[i].enabled?uxair_text:SDL_Color{159,174,194,255};
-        text_at(rows[i].label,panel+18,y+4,(w-panel)*56/100,font_,primary);
+        const bool donation_row=page_id==UiPage::System&&i==3&&donation_icon_;
+        int icon_size=48,icon_y=y+(row_height-48)/2;
+        if(donation_row) {
+            int title_h=0,note_h=0;
+            TTF_SizeUTF8(font_,rows[i].label.c_str(),nullptr,&title_h);
+            TTF_SizeUTF8(small_,rows[i].note.c_str(),nullptr,&note_h);
+            const int text_top=y+4,text_bottom=std::max(y+4+title_h,y+43+note_h),text_height=text_bottom-text_top;
+            icon_size=std::max(48,std::min(68,text_height));
+            icon_y=text_top+(text_height-icon_size)/2;
+        }
+        const int label_x=donation_row?panel+18+icon_size+16:panel+18;
+        text_at(rows[i].label,label_x,y+4,w-label_x-35,font_,primary);
         if(!rows[i].value.empty())text_at(rows[i].value,panel+(w-panel)*65/100,y+4,(w-panel)*30/100,font_,int(i)==selected?uxair_accent:primary);
-        if(!rows[i].note.empty())text_at(rows[i].note,panel+18,y+43,w-panel-60,small_,{151,178,194,255});
+        if(!rows[i].note.empty())text_at(rows[i].note,label_x,y+43,w-label_x-48,small_,{151,178,194,255});
+        if(donation_row) {
+            SDL_Rect icon={panel+18,icon_y,icon_size,icon_size};SDL_RenderCopy(renderer,donation_icon_,nullptr,&icon);
+        }
+        }
     }
-    text_at(footer,panel,h-54,w-panel-35,small_,{152,180,194,255});
+    if(page_id!=UiPage::History)text_at(footer,panel,h-54,w-panel-35,small_,{152,180,194,255});
     if(dialog) {
         SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer,0,5,10,190);
@@ -309,4 +457,4 @@ void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     text("Same Wi-Fi network  ·  Quality in Settings  ·  Back to exit",h-80,font_,{145,167,185,255});
     SDL_RenderPresent(renderer);
 }
-Shell::~Shell() {if(donation_qr_)SDL_DestroyTexture(donation_qr_);if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);if(pin_font_)TTF_CloseFont(pin_font_);if(pin_font_small_)TTF_CloseFont(pin_font_small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }
+Shell::~Shell() {if(donation_icon_)SDL_DestroyTexture(donation_icon_);if(donation_qr_)SDL_DestroyTexture(donation_qr_);if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);if(pin_font_)TTF_CloseFont(pin_font_);if(pin_font_small_)TTF_CloseFont(pin_font_small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }

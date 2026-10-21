@@ -81,22 +81,25 @@ bool load_settings(const std::string& path, Settings& settings) {
     std::ifstream in(path.c_str());
     std::string line;
     if (!std::getline(in, line) || line != "UXPLAY_SETTINGS_V1") return false;
-    Settings parsed;
+    // Early UxAir settings files may omit codec and FPS; interpret those with
+    // the historical safe profile instead of applying new factory defaults.
+    Settings parsed;parsed.width=1280;parsed.height=720;parsed.codec=MirrorCodec::H264;parsed.max_fps=30;
+    bool have_setting=false;
     unsigned lines = 0;
     while (std::getline(in, line) && ++lines <= 16) {
         if (line.size() > 80) return false;
-        if (line == "resolution=720p") { parsed.width=1280; parsed.height=720; }
-        else if (line == "resolution=1080p") { parsed.width=1920; parsed.height=1080; }
-        else if (line == "resolution=4k") { parsed.width=3840; parsed.height=2160; }
-        else if (line == "codec=hevc-experimental") parsed.codec=MirrorCodec::ExperimentalHevc;
-        else if (line == "codec=h264") parsed.codec=MirrorCodec::H264;
-        else if (line == "fps=30") parsed.max_fps=30;
-        else if (line == "fps=60") parsed.max_fps=60;
-        else if (line == "diagnostics=off") parsed.diagnostics=DiagnosticsMode::Off;
-        else if (line == "diagnostics=compact") parsed.diagnostics=DiagnosticsMode::Compact;
-        else if (line == "diagnostics=detailed") parsed.diagnostics=DiagnosticsMode::Detailed;
+        if (line == "resolution=720p") { parsed.width=1280; parsed.height=720; have_setting=true; }
+        else if (line == "resolution=1080p") { parsed.width=1920; parsed.height=1080; have_setting=true; }
+        else if (line == "resolution=4k") { parsed.width=3840; parsed.height=2160; have_setting=true; }
+        else if (line == "codec=hevc-experimental") { parsed.codec=MirrorCodec::ExperimentalHevc; have_setting=true; }
+        else if (line == "codec=h264") { parsed.codec=MirrorCodec::H264; have_setting=true; }
+        else if (line == "fps=30") { parsed.max_fps=30; have_setting=true; }
+        else if (line == "fps=60") { parsed.max_fps=60; have_setting=true; }
+        else if (line == "diagnostics=off") { parsed.diagnostics=DiagnosticsMode::Off; have_setting=true; }
+        else if (line == "diagnostics=compact") { parsed.diagnostics=DiagnosticsMode::Compact; have_setting=true; }
+        else if (line == "diagnostics=detailed") { parsed.diagnostics=DiagnosticsMode::Detailed; have_setting=true; }
     }
-    if (lines > 16) return false;
+    if (lines > 16 || !have_setting) return false;
     validate_settings(parsed);
     settings=parsed;
     return true;

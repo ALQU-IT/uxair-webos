@@ -47,6 +47,7 @@ def main():
     if args.development:
         app['id'] += '.dev'
         app['title'] += ' Dev'
+        app['version'] = '1.1.0'
     stage = ROOT / 'build/app'
     staged = json.loads((stage / 'appinfo.json').read_text())
     if staged != app:
@@ -79,6 +80,11 @@ def main():
             fail('bundled donation QR differs from the committed local image')
         if int.from_bytes(qr[18:22], 'little') != 407 or int.from_bytes(qr[22:26], 'little', signed=True) != 407:
             fail('donation QR must be the expected 407x407 bitmap')
+        coffee = content('bmc-icon.bmp')
+        if coffee != (ROOT / 'assets/bmc-icon.bmp').read_bytes() or coffee[:2] != b'BM':
+            fail('bundled Buy Me a Coffee icon differs from the supplied artwork')
+        if int.from_bytes(coffee[18:22], 'little') != 120 or int.from_bytes(coffee[22:26], 'little', signed=True) != 120:
+            fail('coffee icon must be the optimized square 120x120 bitmap')
         build_info = content('build-info.txt').decode('ascii')
         if not re.fullmatch(r'version=[^\n]+\ncommit=[0-9a-f]{40}\n', build_info):
             fail('missing valid source commit metadata')

@@ -7,7 +7,7 @@ UxAir is a native AirPlay mirroring receiver for compatible rooted LG webOS TVs,
 
 ## Status
 
-UxAir 1.0.0 is publicly released; version 1.1.0 has completed hardware testing and is being prepared for its official release. Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
+UxAir 1.1.0 is officially released. It has been tested on an LG OLED B7 (2017) running rooted webOS 3.9. Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
 
 ## Features
 
@@ -49,7 +49,7 @@ Starting with UxAir 1.1.0, a fresh installation defaults to H.264 at 1920×1080 
 
 ### Download UxAir
 
-**UxAir 1.0.0 is officially released.** Download the ARMv7 installer directly: **[Download UxAir 1.0.0 (.ipk)](https://github.com/depius/uxair-webos/releases/download/v1.0.0/com.github.depius.uxair_1.0.0_arm.ipk)**. For release notes, source code and SHA-256 checksums, see the [UxAir 1.0.0 release page](https://github.com/depius/uxair-webos/releases/tag/v1.0.0).
+**Download the latest official UxAir release:** [GitHub Releases — latest version](https://github.com/depius/uxair-webos/releases/latest). Open the release's **Assets** section and download the ARMv7 `.ipk` installer (currently `com.github.depius.uxair_1.1.0_arm.ipk`). The same page includes release notes, the corresponding source archive, and `SHA256SUMS` for checksum verification.
 
 Install UxAir on a compatible rooted LG webOS TV with native app installation enabled. Keep the TV and Apple device on the same local network with multicast/mDNS discovery available.
 
@@ -67,10 +67,10 @@ For standalone music playback, select UxAir as the AirPlay audio output.
 
 ### Method 2 — webOS CLI
 
-Use this method if you already have the webOS CLI installed and `YOUR_TV` configured as a target device:
+Use this method if you already have the webOS CLI installed and `YOUR_TV` configured as a target device. Download the latest `.ipk` first and replace the filename below if your downloaded version differs:
 
 ```sh
-ares-install -d YOUR_TV com.github.depius.uxair_1.0.0_arm.ipk
+ares-install -d YOUR_TV com.github.depius.uxair_1.1.0_arm.ipk
 ares-launch -d YOUR_TV com.github.depius.uxair
 ```
 

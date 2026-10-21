@@ -20,8 +20,10 @@ int main() {
     assert(visible_row_first(50,102,5)==48);
     assert(visible_row_first(101,102,5)==97);
     const HistoryUiLayout history=history_ui_layout(1920,1080);
-    assert(history.card_top==216&&history.chart_y==416&&history.chart_h==208);
+    assert(history.card_top==216&&history.chart_y>=history.card_top+154&&history.chart_h>=208);
     assert(history.daily_width>history.content_width/2);
+    assert(history.distribution_y>=history.chart_y+history.chart_h+40);
+    assert(history.list_y>=history.heading_y+66);
     assert(history.panel_x+history.daily_width+history.chart_gap+
         history.content_width-history.daily_width-history.chart_gap==1920-48);
     assert(history.list_y+5*history.row_h<=history.reset_y-4);

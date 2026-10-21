@@ -17,13 +17,36 @@ const char *session_kind_name(SessionKind k) {
 const char *usage_period_name(UsagePeriod p) {
     return p==UsagePeriod::Days30?"Last 30 days":p==UsagePeriod::Months12?"Last 12 months":"Last 7 days";
 }
-std::string usage_axis_label(uint64_t milliseconds) {
-    char label[32];
-    if(milliseconds<1000)snprintf(label,sizeof(label),"%llums",(unsigned long long)milliseconds);
-    else if(milliseconds>=3600000)snprintf(label,sizeof(label),"%lluh",(unsigned long long)(milliseconds/3600000+(milliseconds%3600000>=1800000)));
-    else if(milliseconds>=60000)snprintf(label,sizeof(label),"%llum",(unsigned long long)(milliseconds/60000+(milliseconds%60000>=30000)));
-    else snprintf(label,sizeof(label),"%llus",(unsigned long long)(milliseconds/1000+(milliseconds%1000>=500)));
+// Choose the next 1/2/5 scale using the full value, not its truncated leading digit.
+uint64_t usage_chart_axis(uint64_t maximum) {
+    if(!maximum)return 60000;
+    uint64_t magnitude=1;
+    while(magnitude<=maximum/10)magnitude*=10;
+    for(unsigned factor:{1U,2U,5U,10U}) {
+        if(magnitude>UINT64_MAX/factor)return UINT64_MAX;
+        const uint64_t candidate=magnitude*factor;
+        if(candidate>=maximum)return candidate;
+    }
+    return UINT64_MAX;
+}
+std::string usage_axis_label(uint64_t milliseconds,uint64_t unit_ms) {
+    if(!unit_ms)unit_ms=milliseconds>=3600000?3600000:milliseconds>=60000?60000:1000;
+    const char *unit=unit_ms==3600000?"h":unit_ms==60000?"min":"s";
+    char label[48];
+    if(milliseconds%unit_ms==0)snprintf(label,sizeof(label),"%llu %s",(unsigned long long)(milliseconds/unit_ms),unit);
+    else snprintf(label,sizeof(label),"%.1Lf %s",static_cast<long double>(milliseconds)/unit_ms,unit);
     return label;
+}
+UsageBarHeights usage_bar_heights(uint64_t mirror,uint64_t audio,uint64_t axis,int plot_height) {
+    UsageBarHeights out;
+    if(plot_height<=0||!axis||(!mirror&&!audio))return out;
+    // Widen before adding; malformed/extreme counters must never overflow geometry.
+    const long double total=static_cast<long double>(mirror)+audio;
+    const long double fraction=std::min(1.0L,total/axis);
+    const int height=std::max(1,std::min(plot_height,int(plot_height*fraction)));
+    out.mirror=std::max(0,std::min(height,int(height*static_cast<long double>(mirror)/total)));
+    out.audio=height-out.mirror;
+    return out;
 }
 unsigned usage_mirror_percent(uint64_t mirror_ms,uint64_t audio_ms) {
     if(!mirror_ms&&!audio_ms)return 0;
@@ -165,35 +188,54 @@ static bool month_first_day(uint32_t key,uint32_t& day,std::string& label) {
     char b[16];strftime(b,sizeof(b),"%b",&normalized);label=b;return true;
 }
 UsageSummary summarize_usage(const UsageStats& stats,UsagePeriod p,uint32_t today) {
-    UsageSummary out;int slots=p==UsagePeriod::Months12?12:p==UsagePeriod::Days30?30:7;
-    bool monthly=p==UsagePeriod::Months12;std::vector<uint32_t> keys(static_cast<size_t>(slots),0),month_starts(static_cast<size_t>(slots),0);
-    std::vector<std::string> labels(static_cast<size_t>(slots));
-    for(int i=0;i<slots;++i) {
-        if(monthly) {
-            uint32_t current=month_key(today);int y=int(current/100),m=int(current%100)+(i-(slots-1));
-            while(m<1){m+=12;--y;}while(m>12){m-=12;++y;}keys[size_t(i)]=uint32_t(y*100+m);
-            if(!month_first_day(keys[size_t(i)],month_starts[size_t(i)],labels[size_t(i)]))labels[size_t(i)]="?";
-        } else {
-            keys[size_t(i)]=today>=uint32_t(slots-1-i)?today-uint32_t(slots-1-i):0;month_starts[size_t(i)]=keys[size_t(i)];
-            time_t t=time_t(uint64_t(keys[size_t(i)])*86400);struct tm d={};char b[16];
-            if(gmtime_r(&t,&d)){strftime(b,sizeof(b),p==UsagePeriod::Days7?"%a":"%d",&d);labels[size_t(i)]=b;}
-        }
-    }
+    UsageSummary out;
+    const bool calendar=p==UsagePeriod::ThisMonth||p==UsagePeriod::ThisYear;
+    const bool monthly=p==UsagePeriod::Months12||p==UsagePeriod::ThisYear;
+    const uint32_t current=month_key(today),year=current/100,month=current%100;
+    uint32_t first=0,next=0;std::string unused;
+    if(!month_first_day(current,first,unused)||
+       !month_first_day(month==12?(year+1)*100+1:current+1,next,unused))return out;
+    const int slots=p==UsagePeriod::ThisMonth?int(next-first):monthly?12:p==UsagePeriod::Days30?30:7;
+    static const char *month_names[]={"January","February","March","April","May","June","July","August","September","October","November","December"};
+    if(p==UsagePeriod::ThisMonth)out.title=std::string("This month — ")+month_names[month-1]+" "+std::to_string(year);
+    else if(p==UsagePeriod::ThisYear)out.title="This year — "+std::to_string(year);
+    else out.title=usage_period_name(p);
+    // Expired dates remain unavailable even if no session has triggered pruning yet.
+    const uint32_t coverage=stats.daily_from_day?std::max(stats.daily_from_day,today>=364?today-364:0):0;
+    std::vector<uint32_t> starts(size_t(slots),0),ends(size_t(slots),0);
     out.bars.resize(size_t(slots));
-    for(int i=0;i<slots;++i){out.bars[size_t(i)].label=labels[size_t(i)];
-        out.bars[size_t(i)].available=stats.daily_from_day&&(monthly?month_key(month_starts[size_t(i)])>=month_key(stats.daily_from_day):month_starts[size_t(i)]>=stats.daily_from_day&&keys[size_t(i)]<=today);
-        if(monthly&&out.bars[size_t(i)].available) {
-            const uint32_t first=month_starts[size_t(i)];
-            out.bars[size_t(i)].partial=std::max(first,stats.daily_from_day)>first||keys[size_t(i)]==month_key(today);
+    for(int i=0;i<slots;++i) {
+        UsageBar& b=out.bars[size_t(i)];
+        if(monthly) {
+            int y=int(year),m=p==UsagePeriod::ThisYear?i+1:int(month)+i-11;
+            while(m<1){m+=12;--y;}
+            const uint32_t key=uint32_t(y*100+m);
+            month_first_day(key,starts[size_t(i)],b.label);
+            month_first_day(m==12?uint32_t((y+1)*100+1):key+1,ends[size_t(i)],unused);
+            b.current=key==current;
+        } else {
+            starts[size_t(i)]=calendar?first+uint32_t(i):today>=uint32_t(slots-1-i)?today-uint32_t(slots-1-i):0;
+            ends[size_t(i)]=starts[size_t(i)]+1;
+            time_t t=time_t(uint64_t(starts[size_t(i)])*86400);struct tm d={};char label[16];
+            if(gmtime_r(&t,&d)){strftime(label,sizeof(label),p==UsagePeriod::Days7?"%a":"%d",&d);b.label=calendar?std::to_string(d.tm_mday):label;}
+            b.current=starts[size_t(i)]==today;
         }
+        b.future=starts[size_t(i)]>today;
+        b.available=coverage&&!b.future&&ends[size_t(i)]>coverage;
+        // Current-to-date coverage is separate from missing earlier records.
+        b.partial=b.available&&coverage>starts[size_t(i)];
+        if(!calendar&&monthly)b.partial=b.partial||b.current; // legacy rolling summaries
     }
     for(const DailyUsage& d:stats.daily) {
-        int slot=-1;
-        for(int i=0;i<slots;++i)if(monthly?month_key(d.utc_day)==keys[size_t(i)]:d.utc_day==keys[size_t(i)]){slot=i;break;}
-        if(slot<0||!out.bars[size_t(slot)].available)continue;
-        UsageBar& b=out.bars[size_t(slot)];b.mirror_ms=sat_add(b.mirror_ms,d.mirror_ms);b.audio_ms=sat_add(b.audio_ms,d.audio_ms);
-        out.mirror_ms=sat_add(out.mirror_ms,d.mirror_ms);out.audio_ms=sat_add(out.audio_ms,d.audio_ms);
-        out.mirror_sessions+=d.mirror_sessions;out.audio_sessions+=d.audio_sessions;
+        if(!coverage||d.utc_day<coverage||d.utc_day>today)continue;
+        for(int i=0;i<slots;++i) {
+            if(d.utc_day<starts[size_t(i)]||d.utc_day>=ends[size_t(i)])continue;
+            UsageBar& b=out.bars[size_t(i)];if(!b.available)break;
+            b.mirror_ms=sat_add(b.mirror_ms,d.mirror_ms);b.audio_ms=sat_add(b.audio_ms,d.audio_ms);
+            out.mirror_ms=sat_add(out.mirror_ms,d.mirror_ms);out.audio_ms=sat_add(out.audio_ms,d.audio_ms);
+            out.mirror_sessions=sat_add(out.mirror_sessions,d.mirror_sessions);out.audio_sessions=sat_add(out.audio_sessions,d.audio_sessions);
+            break;
+        }
     }
     return out;
 }

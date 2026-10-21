@@ -23,11 +23,18 @@ jobs:
       - name: Install native test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential ffmpeg pkg-config libsdl2-dev libavcodec-dev libavutil-dev libswresample-dev
+          sudo apt-get install --yes build-essential ffmpeg pkg-config libsdl2-dev libsdl2-ttf-dev fonts-dejavu-core libavcodec-dev libavutil-dev libswresample-dev
       - name: Validate source and run sanitizer-backed tests
         run: |
           python3 tools/validate-metadata.py
           tools/test.sh
+      - name: Upload host SDL History previews
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: history-render-previews-${{ github.sha }}
+          path: build/tests/history-*.bmp
+          if-no-files-found: error
+          retention-days: 14
   build-ipk:
     needs: native-tests
     runs-on: macos-15

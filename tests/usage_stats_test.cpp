@@ -16,14 +16,72 @@ int main() {
     const std::string root(dir),path=root+"/usage-v1";
     UsageStats empty;assert(!load_usage_stats(path,empty)&&!empty.storage_corrupt);
     assert(summarize_usage(empty,UsagePeriod::Days7,20000).bars.size()==7);
-    assert(usage_axis_label(12500)=="13s");
-    assert(usage_axis_label(250)=="250ms");
-    assert(usage_axis_label(900000)=="15m");
-    assert(usage_axis_label(5400000)=="2h");
+    assert(usage_axis_label(12500)=="12.5 s");
+    assert(usage_axis_label(200)=="0.2 s");
+    assert(usage_axis_label(900000)=="15 min");
+    assert(usage_axis_label(5400000)=="1.5 h");
     assert(usage_mirror_percent(0,0)==0);
     assert(usage_mirror_percent(1,2)==33&&usage_mirror_percent(2,1)==67);
     const unsigned mirror_pct=usage_mirror_percent(1234567,7654321);
     assert(mirror_pct+(100-mirror_pct)==100);
+
+    assert(usage_axis_label(0)=="0 s");
+    assert(usage_axis_label(60000)=="1 min");
+    assert(usage_axis_label(3600000)=="1 h");
+    assert(usage_axis_label(0,60000)=="0 min");
+    // Every scale covers its data, including former floor-rounding failures.
+    for(uint64_t value:{0ULL,1ULL,1000ULL,10000ULL,59000ULL,60000ULL,90000ULL,151000ULL,
+                       1800000ULL,10800000ULL,99999ULL,100000ULL,100001ULL,199999ULL,
+                       200000ULL,200001ULL,500001ULL,UINT64_MAX-1ULL,static_cast<unsigned long long>(UINT64_MAX)}) {
+        const uint64_t axis=usage_chart_axis(value);assert(axis>=value&&axis>0);
+        for(int height:{0,1,83,200}) {
+            auto h=usage_bar_heights(value/3,value-value/3,axis,height);
+            assert(h.mirror>=0&&h.audio>=0&&h.mirror+h.audio<=height);
+            if(value&&height)assert(h.mirror+h.audio>0);
+        }
+    }
+    assert(usage_chart_axis(151000)==200000);
+    auto exact=usage_bar_heights(120000,80000,200000,100);assert(exact.mirror==60&&exact.audio==40);
+    auto clipped=usage_bar_heights(UINT64_MAX,UINT64_MAX,1,100);assert(clipped.mirror+clipped.audio==100);
+    auto day=[](int year,int month,int date) {struct tm t={};t.tm_year=year-1900;t.tm_mon=month-1;t.tm_mday=date;return usage_utc_day(uint64_t(timegm(&t)));};
+    const uint32_t oct21=day(2026,10,21);
+    UsageStats calendar;calendar.daily_from_day=day(2026,10,10);
+    DailyUsage sample;sample.utc_day=oct21;sample.mirror_ms=151000;sample.audio_ms=59000;calendar.daily.push_back(sample);
+    // Future stored records are ignored, including clock-skewed data in the current month.
+    sample.utc_day=day(2026,10,22);sample.mirror_ms=999999;calendar.daily.push_back(sample);
+    auto october=summarize_usage(calendar,UsagePeriod::ThisMonth,oct21);
+    assert(october.title=="This month — October 2026"&&october.bars.size()==31);
+    assert(october.bars.front().label=="1"&&october.bars.back().label=="31");
+    assert(october.bars[20].current&&october.bars[20].mirror_ms==151000);
+    assert(!october.bars[8].available&&!october.bars[8].future);
+    assert(october.bars[9].available&&october.bars[9].mirror_ms==0);
+    assert(october.bars[21].future&&!october.bars[21].available&&october.bars[21].mirror_ms==0);
+    auto annual=summarize_usage(calendar,UsagePeriod::ThisYear,oct21);
+    assert(annual.title=="This year — 2026"&&annual.bars.size()==12);
+    assert(annual.bars[0].label=="Jan"&&annual.bars[11].label=="Dec");
+    assert(annual.bars[9].label=="Oct"&&annual.bars[9].current&&annual.bars[9].partial&&annual.bars[9].mirror_ms==151000);
+    assert(!annual.bars[8].available&&!annual.bars[8].future&&annual.bars[10].future);
+    calendar.daily_from_day=day(2026,1,1);
+    annual=summarize_usage(calendar,UsagePeriod::ThisYear,oct21);
+    assert(annual.bars[9].current&&!annual.bars[9].partial); // complete coverage to date
+    assert(annual.bars[0].available&&!annual.bars[0].partial);
+    for(int year:{2024,2025,2026,2100,2000})for(int month=1;month<=12;++month) {
+        // Keep representable dates for the ARMv7 time_t convention; Gregorian century rules tested on host.
+        auto result=summarize_usage(calendar,UsagePeriod::ThisMonth,day(year,month,1));
+        const bool leap=(year%4==0&&(year%100!=0||year%400==0));
+        const int expected=month==2?(leap?29:28):(month==4||month==6||month==9||month==11)?30:31;
+        assert(result.bars.size()==size_t(expected));assert(result.bars[0].current&&result.bars[1].future);
+    }
+    auto january=summarize_usage(calendar,UsagePeriod::ThisYear,day(2027,1,1));
+    assert(january.bars[0].current&&january.bars[1].future&&!january.bars[0].partial);
+    // Jan 1 of a leap year is outside the last 365 UTC dates on Dec 31.
+    calendar.daily_from_day=day(2024,1,1);
+    auto retained=summarize_usage(calendar,UsagePeriod::ThisYear,day(2024,12,31));
+    assert(retained.bars[0].partial);
+    auto retained_days=summarize_usage(calendar,UsagePeriod::ThisMonth,day(2024,1,1));
+    assert(retained_days.bars[0].available);
+    auto no_history=summarize_usage(empty,UsagePeriod::ThisYear,oct21);
+    assert(!no_history.bars[9].available&&!no_history.bars[9].future&&no_history.bars[10].future);
 
     // A session crossing UTC new year contributes to both daily buckets.
     UsageStats cross;cross.daily_from_day=usage_utc_day(1704067190);

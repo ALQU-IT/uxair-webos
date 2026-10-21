@@ -10,13 +10,13 @@ int visible_row_first(int selected,int count,int visible) {
 }
 HistoryUiLayout history_ui_layout(int width,int height) {
     const int panel=width/4+32,content=width-panel-48,top=height/5;
-    const int chart_y=top+200,chart_h=208,gap=20;
+    const int chart_y=top+176,chart_h=230,gap=20;
     const int daily=(content-gap)*65/100;
-    const int distribution_y=chart_y+chart_h+18;
+    const int distribution_y=chart_y+chart_h+48;
     const int distribution_bar_y=distribution_y+27;
-    const int heading_y=distribution_bar_y+22+17;
+    const int heading_y=distribution_bar_y+22+25;
     const int row_h=std::max(28,std::min(36,height/30));
-    const int list_y=heading_y+58;
+    const int list_y=heading_y+66;
     return {panel,content,top,chart_y,chart_h,daily,gap,distribution_y,
             distribution_bar_y,heading_y,list_y,row_h,panel-5,height-74,180,42};
 }

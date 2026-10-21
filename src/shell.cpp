@@ -186,60 +186,79 @@ void Shell::text_at(const std::string& s,int x,int y,int max_width,TTF_Font *fon
 }
 void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& rows,int selected,int panel,int w,int h) {
     const HistoryUiLayout layout=history_ui_layout(w,h);
-    const int content=layout.content_width,top=layout.card_top,card_gap=16,card_h=82;
+    const int content=layout.content_width,top=layout.card_top,card_gap=16,card_h=70;
     auto card=[&](int x,int y,int cw,const char *label,const std::string& value) {
         SDL_Rect r={x,y,cw,card_h};fill_round_rect(renderer,r,12,uxair_navy);
         text_at(label,x+16,y+9,cw-32,small_,{157,184,201,255});
-        text_at(value,x+16,y+40,cw-32,font_,uxair_text);
+        text_at(value,x+16,y+34,cw-32,font_,uxair_text);
     };
     const int third=(content-card_gap*2)/3;
     card(panel,top,third,"LIFETIME SESSIONS",data.summary);
     card(panel+third+card_gap,top,third,"LIFETIME PLAYBACK",data.total_time);
     card(panel+2*(third+card_gap),top,third,"AVERAGE SESSION",data.average);
-    const int second_y=top+96;
+    const int second_y=top+84;
     card(panel,second_y,content/2-card_gap/2,"LAST 30 DAYS - SCREEN MIRRORING",data.mirror_time);
     card(panel+content/2+card_gap/2,second_y,content/2-card_gap/2,"LAST 30 DAYS - AIRPLAY MUSIC",data.music_time);
-    auto draw_chart=[&](int x,int y,int cw,int ch,const std::vector<UiHistoryBar>& bars,const char *title,bool monthly) {
+    auto draw_chart=[&](int x,int y,int cw,int ch,const std::vector<UiHistoryBar>& bars,const std::string& title,bool monthly) {
         fill_round_rect(renderer,{x,y,cw,ch},12,{25,39,61,255});
         uint64_t maximum=0;
         for(const auto& b:bars)if(b.available) {
             const uint64_t total=b.audio_ms>UINT64_MAX-b.mirror_ms?UINT64_MAX:b.mirror_ms+b.audio_ms;
             maximum=std::max(maximum,total);
         }
-        uint64_t axis=maximum?maximum:60000,magnitude=1;
-        while(magnitude<=axis/10&&magnitude<=UINT64_MAX/10)magnitude*=10;
-        const uint64_t leading=axis/magnitude,factor=leading<=1?1:leading<=2?2:leading<=5?5:10;
-        axis=factor>UINT64_MAX/magnitude?maximum:factor*magnitude;
-        text_at(title,x+16,y+10,cw-32,small_,uxair_text);
-        text_at(monthly?"* partial/current":"Duration",x+cw-150,y+10,134,small_,{166,188,202,255});
-        const int px=x+62,py=y+44,pw=cw-76,base=y+ch-32,plot_h=base-py;
+        const uint64_t axis=usage_chart_axis(maximum);
+        const uint64_t unit=axis>=3600000?3600000:axis>=60000?60000:1000;
+        const int text_h=TTF_FontHeight(small_),padding=16;
+        text_at(title,x+padding,y+8,cw-2*padding,small_,uxair_text);
+        // Reserve two label rows; one shared legend below the cards explains both charts.
+        int axis_width=0;
+        for(int tick=0;tick<=2;++tick) {
+            int tw=0;TTF_SizeUTF8(small_,usage_axis_label(tick==2?axis:tick?axis/2:0,unit).c_str(),&tw,nullptr);
+            axis_width=std::max(axis_width,tw);
+        }
+        const int px=x+padding+axis_width+10,py=y+text_h+26,pw=cw-(px-x)-padding;
+        const int base=y+ch-2*text_h-12,plot_h=std::max(1,base-py);
         for(int tick=0;tick<=2;++tick) {
             const int gy=base-plot_h*tick/2;
-            SDL_SetRenderDrawColor(renderer,54,70,88,255);SDL_RenderDrawLine(renderer,px,gy,px+pw,gy);
-            const uint64_t tick_value=tick==0?0:tick==1?axis/2:axis;
-            text_at(usage_axis_label(tick_value),x+7,gy-12,50,small_,{157,178,194,255});
+            SDL_SetRenderDrawColor(renderer,54,70,88,255);SDL_RenderDrawLine(renderer,px,gy,px+pw-1,gy);
+            text_at(usage_axis_label(tick==2?axis:tick?axis/2:0,unit),x+padding,gy-text_h/2,axis_width,small_,{157,178,194,255});
         }
-        const int n=int(bars.size()),slot=n?pw/n:pw,bw=std::max(2,std::min(slot-3,monthly?22:14));
+        const int n=int(bars.size());
+        SDL_Rect previous_clip;SDL_RenderGetClipRect(renderer,&previous_clip);
+        const bool had_clip=SDL_RenderIsClipEnabled(renderer)==SDL_TRUE;
+        const SDL_Rect plot={px,py,pw,plot_h};SDL_RenderSetClipRect(renderer,&plot);
         for(int i=0;i<n;++i) {
-            const UiHistoryBar& b=bars[size_t(i)];const int bx=px+i*slot+(slot-bw)/2;
-            if(!b.available) {SDL_SetRenderDrawColor(renderer,65,77,91,255);SDL_RenderDrawLine(renderer,bx,base-2,bx+bw-1,base-2);continue;}
-            const uint64_t total=b.audio_ms>UINT64_MAX-b.mirror_ms?UINT64_MAX:b.mirror_ms+b.audio_ms;
-            const int bh=maximum?int((long double)plot_h*total/axis):0;
-            if(total&&bh==0) {SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_RenderDrawLine(renderer,bx,base-1,bx+bw-1,base-1);}
-            const int mh=total?int((long double)bh*b.mirror_ms/total):0,ah=bh-mh;
+            const auto& b=bars[size_t(i)];
+            const int left=px+pw*i/n,right=px+pw*(i+1)/n;
+            const int bw=std::max(1,std::min(right-left-3,monthly?22:14)),bx=(left+right-bw)/2;
+            if(b.future)continue;
+            if(!b.available) {SDL_SetRenderDrawColor(renderer,130,145,159,255);SDL_RenderDrawLine(renderer,bx,base-2,bx+bw-1,base-2);continue;}
+            const UsageBarHeights heights=usage_bar_heights(b.mirror_ms,b.audio_ms,axis,plot_h);
+            const int mh=heights.mirror,ah=heights.audio;
             SDL_SetRenderDrawColor(renderer,101,185,246,255);SDL_Rect mr={bx,base-mh,bw,mh};if(mh)SDL_RenderFillRect(renderer,&mr);
-            SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect ar={bx,base-bh,bw,ah};if(ah)SDL_RenderFillRect(renderer,&ar);
-            if(monthly||i%5==0||i==n-1) {
-                const std::string label=b.label+(b.partial?"*":"");
-                text_at(label,bx-slot/2,base+3,slot,small_,{171,190,204,255});
-            }
+            SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect ar={bx,base-mh-ah,bw,ah};if(ah)SDL_RenderFillRect(renderer,&ar);
+            if(!mh&&!ah) {SDL_SetRenderDrawColor(renderer,174,194,207,255);SDL_Rect zero={(left+right)/2-1,base-2,3,2};SDL_RenderFillRect(renderer,&zero);}
         }
-        if(maximum==0)text_at("No playback data yet",px+8,py+plot_h/2-14,pw-16,small_,{145,166,181,255});
+        SDL_RenderSetClipRect(renderer,had_clip?&previous_clip:nullptr);
+        // Labels are independent of bar availability, so Jan/Dec and day 1/end never disappear.
+        for(int i=0;i<n;++i) {
+            const auto& b=bars[size_t(i)];
+            if(!monthly&&i!=0&&(i+1)%5!=0&&i!=n-1)continue;
+            // Avoid adjacent day 30/31 labels. The final calendar day takes priority.
+            if(!monthly&&i==n-2&&i!=0)continue;
+            const std::string label=b.label+(b.partial?"*":"");
+            int tw=0;TTF_SizeUTF8(small_,label.c_str(),&tw,nullptr);
+            const int center=px+pw*(2*i+1)/(2*n);
+            const int tx=std::max(px,std::min(center-tw/2,x+cw-padding-tw));
+            const int label_y=base+7+(monthly?i%2*(text_h+1):0);
+            text_at(label,tx,label_y,x+cw-padding-tx,small_,b.current?uxair_accent:b.future?SDL_Color{116,133,148,255}:SDL_Color{171,190,204,255});
+        }
     };
     const int chart_y=layout.chart_y,chart_h=layout.chart_h;
-    draw_chart(panel,chart_y,layout.daily_width,chart_h,data.daily_bars,"Last 30 days",false);
+    draw_chart(panel,chart_y,layout.daily_width,chart_h,data.daily_bars,data.daily_title,false);
     const int month_x=panel+layout.daily_width+layout.chart_gap;
-    draw_chart(month_x,chart_y,content-layout.daily_width-layout.chart_gap,chart_h,data.monthly_bars,"Last 12 months",true);
+    draw_chart(month_x,chart_y,content-layout.daily_width-layout.chart_gap,chart_h,data.monthly_bars,data.monthly_title,true);
+    text_at("UTC · Blue label: current · * Partial history · — Unavailable · • Known zero · Blank: future",panel,chart_y+chart_h+7,content,small_,{157,178,194,255});
     if(data.mirror_percent+data.audio_percent) {
         text_at("Last 30 days - playback distribution",panel,layout.distribution_y,content/2,small_,uxair_text);
         text_at("Screen mirroring  "+std::to_string(data.mirror_percent)+"%",panel+content/2,layout.distribution_y,content/4,small_,uxair_accent);
@@ -253,9 +272,9 @@ void Shell::draw_history(const UiHistoryData& data,const std::vector<UiRow>& row
     SDL_SetRenderDrawColor(renderer,104,194,157,255);SDL_Rect a={panel+mw,layout.distribution_bar_y,content-mw,dist_h};if(total_pct&&a.w)SDL_RenderFillRect(renderer,&a);
     const int list_y=layout.list_y,row_h=layout.row_h;
     text_at("Recent sessions",panel,layout.heading_y,content/2,font_,uxair_text);
-    text_at("STARTED (UTC)",panel+10,layout.heading_y+30,content*27/100,small_,{157,184,201,255});
-    text_at("DURATION",panel+content*30/100,layout.heading_y+30,content*15/100,small_,{157,184,201,255});
-    text_at("SESSION",panel+content*48/100,layout.heading_y+30,content*50/100,small_,{157,184,201,255});
+    text_at("STARTED (UTC)",panel+10,layout.heading_y+36,content*27/100,small_,{157,184,201,255});
+    text_at("DURATION",panel+content*30/100,layout.heading_y+36,content*15/100,small_,{157,184,201,255});
+    text_at("SESSION",panel+content*48/100,layout.heading_y+36,content*50/100,small_,{157,184,201,255});
     const int count=std::max(0,int(rows.size())-1),visible=std::min(5,count),first=visible_row_first(std::max(0,selected),count,visible);
     for(int i=0;i<visible;++i){int idx=first+i,y=list_y+i*row_h;
         if(selected==idx){SDL_Rect f={panel-5,y-3,content,row_h-1};SDL_SetRenderDrawColor(renderer,uxair_surface.r,uxair_surface.g,uxair_surface.b,255);SDL_RenderFillRect(renderer,&f);}

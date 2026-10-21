@@ -2,6 +2,7 @@
 #include <SDL.h>
 #include "input.h"
 #include "ui_navigation.h"
+#include "usage_stats.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,8 +13,9 @@ struct UiRow {
     UiRow(const std::string& l,const std::string& v,const std::string& n,bool e=true)
         : label(l),value(v),note(n),enabled(e) {}
 };
-struct UiHistoryBar { std::string label; uint64_t mirror_ms=0,audio_ms=0; bool available=false,partial=false; };
+using UiHistoryBar = UsageBar;
 struct UiHistoryData {
+    std::string daily_title,monthly_title;
     std::string summary,total_time,average,mirror_time,music_time,storage;
     std::vector<UiHistoryBar> daily_bars,monthly_bars;
     unsigned mirror_percent=0,audio_percent=0;
@@ -48,6 +50,7 @@ public:
     void transparent();
     ~Shell();
 private:
+    friend struct HistoryRenderTest;
     InputMapper input_{SDL_SCANCODE_UNKNOWN, SDL_SCANCODE_UNKNOWN};
     bool pointer_select_ = false;
     int pointer_x_ = 0, pointer_y_ = 0;

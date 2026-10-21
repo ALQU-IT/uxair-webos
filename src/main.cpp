@@ -116,6 +116,7 @@ int main() {
     bool ui_visible=true,session_success=false,donation_open=false;
     UiHistoryData history_data;
     bool history_dirty=true;
+    uint32_t history_day=0;
     size_t history_storage=usage_storage_bytes(state_dir+"/usage-v1");
     std::string last_rendered_pin;
     std::vector<std::string> last_overlay_lines;
@@ -290,7 +291,7 @@ int main() {
             rows.push_back(UiRow("Reset history","Select","Permanently clears saved usage statistics"));
         } else if(which==UiPage::System) {
             rows.push_back(UiRow("UxAir",build_version,"AirPlay Receiver for webOS",false));
-            rows.push_back(UiRow("Developer","@depius","UxPlay by FDH2; uxplay-webOS by Daniel Filho (@danlflh)",false));
+            rows.push_back(UiRow("Developer","Matej Skuhala (@depius)","Based on UxPlay by FDH2; uxplay-webOS by @danlflh",false));
             rows.push_back(UiRow("License","GPL-3.0-or-later","See bundled license and third-party notices",false));
             rows.push_back(UiRow("Enjoying UxAir? Buy me a coffee","","Support development · UxAir is free and open source"));
         }
@@ -332,13 +333,16 @@ int main() {
         UiDialog d=dialog_for();
         const std::vector<UiRow> rows=rows_for(page);
         if(page==UiPage::History) {
+            const uint32_t today=usage_utc_day(uint64_t(time(nullptr)));
+            if(today!=history_day){history_day=today;history_dirty=true;}
             const size_t current_storage=usage_storage_bytes(state_dir+"/usage-v1");
             if(current_storage!=history_storage){history_storage=current_storage;history_dirty=true;}
         }
         if(page==UiPage::History && history_dirty) {
             const uint32_t today=usage_utc_day(uint64_t(time(nullptr)));
             UsageSummary thirty=summarize_usage(usage,UsagePeriod::Days30,today);
-            UsageSummary months=summarize_usage(usage,UsagePeriod::Months12,today);
+            UsageSummary days=summarize_usage(usage,UsagePeriod::ThisMonth,today);
+            UsageSummary months=summarize_usage(usage,UsagePeriod::ThisYear,today);
             history_data=UiHistoryData();
             history_data.session_count=usage.recent.size();history_data.empty=usage.recent.empty();
             uint64_t sessions=usage.successful_sessions;
@@ -350,8 +354,8 @@ int main() {
             history_data.mirror_percent=usage_mirror_percent(thirty.mirror_ms,thirty.audio_ms);
             history_data.audio_percent=(thirty.mirror_ms||thirty.audio_ms)?100-history_data.mirror_percent:0;
             history_data.storage=usage.storage_corrupt?"History file unreadable; reset to restart":"History storage "+std::to_string((history_storage+1023)/1024)+" KB | "+std::to_string(usage.recent.size())+"/100 sessions | 365d";
-            for(const UsageBar& bar:thirty.bars){UiHistoryBar b;b.label=bar.label;b.mirror_ms=bar.mirror_ms;b.audio_ms=bar.audio_ms;b.available=bar.available;b.partial=bar.partial;history_data.daily_bars.push_back(b);}
-            for(const UsageBar& bar:months.bars){UiHistoryBar b;b.label=bar.label;b.mirror_ms=bar.mirror_ms;b.audio_ms=bar.audio_ms;b.available=bar.available;b.partial=bar.partial;history_data.monthly_bars.push_back(b);}
+            history_data.daily_title=days.title;history_data.monthly_title=months.title;
+            history_data.daily_bars=days.bars;history_data.monthly_bars=months.bars;
             history_dirty=false;
         }
         shell.page(page,subtitle,rows,focus,footer,
@@ -554,7 +558,7 @@ int main() {
                 ++silence_blocks;
             }
         }
-        if(!opened && (page==UiPage::History?last_ui==0:now-last_ui>1000000000LL) && (pairing_pin.empty() || pairing_changed)) {
+        if(!opened && (page==UiPage::History?(last_ui==0||usage_utc_day(uint64_t(time(nullptr)))!=history_day):now-last_ui>1000000000LL) && (pairing_pin.empty() || pairing_changed)) {
             draw_page(receiver.status(),"Left/Right sections  •  Up/Down focus  •  OK select  •  Back cancel");
             last_ui=now;
         }

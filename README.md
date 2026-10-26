@@ -9,6 +9,19 @@ UxAir is a native AirPlay mirroring receiver for compatible rooted LG webOS TVs,
 
 UxAir 1.1.0 is officially released. It has been tested on an LG OLED B7 (2017) running rooted webOS 3.9. Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified. HDR10/Main10 is not supported. Native 4K output-plane resolution and displayed FPS are not measured by this application.
 
+### webOS 5+ and webOS 10 (branch webos10-ndl)
+
+webOS 10 no longer has the Starfish/ACB player UxAir 1.1.0 uses. This branch
+adds a second player on LG's NDL direct media API and builds one package per
+platform: `tools/build.sh` for webOS 5 and later, `tools/build.sh
+--media=starfish` for webOS 3-4. Verified on an LG OLED (2024, webOS 10.3.1)
+with iPhone and iPad: mirroring (HEVC up to 4K, H.264), photos and videos
+while mirroring, and audio-only playback with a Now Playing screen (cover,
+title, progress). UxAir also stays discoverable in the background, comes to
+the front when a device streams, and keeps LG's screen saver away while it
+plays. The webOS 3-4 package builds but has not been tested on a TV. Details:
+[docs/PORT-WEBOS10.md](docs/PORT-WEBOS10.md).
+
 ## Features
 
 - H.264 AirPlay mirroring up to 1080p/60, tested on the B7.

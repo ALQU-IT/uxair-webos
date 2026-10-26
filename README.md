@@ -14,8 +14,9 @@ UxAir 1.1.0 is officially released. It has been tested on an LG OLED B7 (2017) r
 webOS 10 no longer has the Starfish/ACB player UxAir 1.1.0 uses. This branch
 adds a second player on LG's NDL direct media API and builds one package per
 platform: `tools/build.sh` for webOS 5 and later, `tools/build.sh
---media=starfish` for webOS 3-4. Verified on an LG OLED (2024, webOS 10.3.1)
-with iPhone and iPad: mirroring (HEVC up to 4K, H.264), photos and videos
+--media=starfish` for webOS 3-4. Tested on an LG OLED65C48LA (OLED evo C4,
+2024) running rooted webOS 10.3.1, with an iPhone and an iPad: mirroring
+(HEVC up to 4K, H.264), photos and videos
 while mirroring, and audio-only playback with a Now Playing screen (cover,
 title, progress). UxAir also stays discoverable in the background, comes to
 the front when a device streams, and keeps LG's screen saver away while it
@@ -56,6 +57,7 @@ Starting with UxAir 1.1.0, a fresh installation defaults to H.264 at 1920×1080 
 - A compatible rooted LG webOS TV with native application development enabled.
 - A TV and sender on the same local network with multicast/mDNS discovery available.
 - Tested on LG OLED B7 (2017) running rooted webOS 3.9. Other LG webOS models may be compatible but have not yet been verified.
+- The webOS 5+ package (branch `webos10-ndl`) was tested on LG OLED65C48LA (OLED evo C4, 2024) running rooted webOS 10.3.1.
 - The ARMv7 build uses the pinned webOS Brew toolchain. CI performs host tests and builds/validates the ARMv7 IPK.
 
 ## Install and use
@@ -96,7 +98,7 @@ UxAir uses the new ID `com.github.depius.uxair`. It installs alongside the exist
 ## Remote and configuration
 
 - Left/Right changes the Video, Audio, History, Diagnostics, and About sections.
-- Up/Down focuses rows; OK opens or confirms a choice; Back cancels a dialog or pairing attempt, returns from playback to the UI, or exits from the idle screen.
+- Up/Down focuses rows; OK opens or confirms a choice; Back cancels a dialog or pairing attempt, returns from playback to the UI, or, on the idle screen, sends UxAir to the background, where it stays discoverable (branch `webos10-ndl`; 1.1.0 exits).
 - During playback, OK opens diagnostics and Back returns to video.
 - Set audio delay before connecting; positive values delay the TV audio.
 - Choose 30 or 60 FPS as the advertised maximum. The sender may use a lower rate.

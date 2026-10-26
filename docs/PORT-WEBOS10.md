@@ -6,7 +6,8 @@ and later have LG's **NDL direct media** API (`libNDL_directmedia.so.1`, API
 version 2, as Moonlight TV uses). This port adds a second player on that API
 and keeps upstream's Starfish player for webOS 3-4.
 
-Verified on an LG OLED (2024, webOS 10.3.1) with iPhone and iPad: mirroring
+Tested on an LG OLED65C48LA (OLED evo C4, 2024, rooted webOS 10.3.1) with
+iPhone and iPad: mirroring
 (HEVC up to 4K, H.264), photos and videos while mirroring, audio-only playback.
 The webOS 3-4 build compiles but has not been tested on a TV.
 

@@ -17,6 +17,16 @@ struct Packet {
     int64_t arrival_ns = 0, enqueued_ns = 0, dequeued_ns = 0;
     std::vector<uint8_t> data;
 };
+// What the sender reports about the audio it plays (AirPlay "md=0,1,2"):
+// DMAP text, cover art and progress, for the Now Playing screen.
+struct NowPlaying {
+    std::string title, artist, album, source;   // source: the sender's name
+    std::vector<uint8_t> cover;                  // JPEG or PNG as sent
+    uint32_t start = 0, current = 0, end = 0;    // RTP timestamps, 44.1 kHz
+    int64_t progress_ns = 0;                     // when start/current/end arrived
+    int64_t cover_ns = 0, track_ns = 0;          // when the cover / a different track arrived
+    uint64_t generation = 0, cover_generation = 0;
+};
 struct ReceiverDiagnostics {
     size_t queue_packets = 0, queue_bytes = 0;
     size_t peak_queue_packets = 0, peak_queue_bytes = 0;
@@ -41,6 +51,7 @@ struct Receiver {
     std::string status();
     void show(const std::string& text);
     std::string pin();
+    NowPlaying now_playing();
     bool idle_for_profile_change();
     void adjust_audio_delay(int delta_ms);
     std::atomic<int> audio_delay_ms{100};
@@ -57,6 +68,7 @@ struct Receiver {
     std::atomic<unsigned> incoming_video_codec{0}; // 1 H.264, 2 HEVC
     std::atomic<unsigned> overflow{0};
     std::atomic<unsigned> session_resets{0};
+    std::atomic<unsigned> stream_requests{0};   // admitted SETUPs: a device starts streaming
     size_t max_video_packet_bytes=1024*1024, max_queue_bytes=4*1024*1024;
     Settings active_profile;
     raop_t *raop = nullptr;
@@ -73,7 +85,9 @@ struct Receiver {
     VideoTiming video_timing;
     DurationWindow ingress_to_queue, ingress_copy, queue_lock_wait, queue_pop;
     DurationWindow video_queue_residence, audio_queue_residence;
-    std::string directory, message="Waiting for a connection", client;
+    std::string directory, message="Waiting for a connection", client, client_name;
     PairingOverlayState pairing;
+    std::mutex meta_mutex;   // the sender's callbacks run on its threads
+    NowPlaying meta;
     std::set<std::string> keys;
 };

@@ -16,6 +16,27 @@ static Receiver& self(void *p) { return *static_cast<Receiver *>(p); }
 static void log_message(void *,int level,const char *text) {
     if (level<=LOGGER_INFO) fprintf(stderr,"[airplay] %s\n",text);
 }
+// DMAP: 4-byte tag, 4-byte big-endian length, data; "mlit" holds the items.
+static void dmap_items(const uint8_t *d,size_t len,NowPlaying& m) {
+    for(size_t o=0;o+8<=len;) {
+        const std::string tag(reinterpret_cast<const char *>(d+o),4);
+        const size_t n=(size_t(d[o+4])<<24)|(size_t(d[o+5])<<16)|(size_t(d[o+6])<<8)|d[o+7];
+        o+=8;
+        if(n>len-o)break;
+        const std::string value(reinterpret_cast<const char *>(d+o),n);
+        if(tag=="mlit")dmap_items(d+o,n,m);
+        else if(tag=="minm")m.title=value;
+        else if(tag=="asar")m.artist=value;
+        else if(tag=="asal")m.album=value;
+        o+=n;
+    }
+}
+NowPlaying Receiver::now_playing() {
+    NowPlaying copy;
+    {std::lock_guard<std::mutex> l(meta_mutex);copy=meta;}
+    std::lock_guard<std::mutex> l(mutex);copy.source=client_name;
+    return copy;
+}
 void Receiver::show(const std::string& s) { std::lock_guard<std::mutex> l(mutex);message=s; }
 std::string Receiver::status() { std::lock_guard<std::mutex> l(mutex);return message; }
 std::string Receiver::pin() { std::lock_guard<std::mutex> l(mutex);return pairing.pin(); }
@@ -109,7 +130,7 @@ bool Receiver::pop(Packet& p,uint64_t latest) {
     queue_pop.record(uint64_t(std::max<int64_t>(0,now_ns()-pop_begin)));
     return true;
 }
-void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=video_packets=video_bytes=0;pairing.reset();client.clear();video_timing.reset();ingress_to_queue.reset();ingress_copy.reset();queue_lock_wait.reset();queue_pop.reset();video_queue_residence.reset();audio_queue_residence.reset();last_video_arrival=0; }
+void Receiver::clear() { std::lock_guard<std::mutex> l(mutex);packets.clear();bytes=video_packets=video_bytes=0;pairing.reset();client.clear();client_name.clear();video_timing.reset();ingress_to_queue.reset();ingress_copy.reset();queue_lock_wait.reset();queue_pop.reset();video_queue_residence.reset();audio_queue_residence.reset();last_video_arrival=0; }
 void Receiver::clear_audio_packets() {
     std::lock_guard<std::mutex> l(mutex);
     for(auto i=packets.begin();i!=packets.end();) {
@@ -210,7 +231,31 @@ bool Receiver::start(const std::string& dir, const Settings& settings) {
         Receiver& r=self(p);std::lock_guard<std::mutex> l(r.mutex);
         *admit=id && (r.client.empty()||r.client==id);
         fprintf(stderr,"[client] model=%.80s admitted=%d\n",model?model:"unknown",int(*admit));
-        if(*admit) {r.client=id;r.message=std::string("Connecting: ")+(name?std::string(name).substr(0,80):"device");r.activity=now_ns();}
+        if(*admit) {++r.stream_requests;r.client=id;r.client_name=name?std::string(name).substr(0,80):"";r.message=std::string("Connecting: ")+(name?std::string(name).substr(0,80):"device");r.activity=now_ns();}
+    };
+    cb.audio_set_metadata=[](void *p,const void *buffer,int length){
+        Receiver& r=self(p);NowPlaying m;
+        if(buffer&&length>0)dmap_items(static_cast<const uint8_t *>(buffer),size_t(length),m);
+        std::lock_guard<std::mutex> l(r.meta_mutex);
+        // the cover is kept as it is: iOS sends a track's cover before its text
+        if(m.title!=r.meta.title||m.artist!=r.meta.artist)r.meta.track_ns=now_ns();
+        r.meta.title=m.title;r.meta.artist=m.artist;r.meta.album=m.album;++r.meta.generation;
+        fprintf(stderr,"[now-playing] %.60s - %.60s (%.60s)\n",m.artist.c_str(),m.title.c_str(),m.album.c_str());
+    };
+    cb.audio_set_coverart=[](void *p,const void *buffer,int length){
+        Receiver& r=self(p);std::lock_guard<std::mutex> l(r.meta_mutex);
+        if(buffer&&length>0&&length<8*1024*1024)r.meta.cover.assign(static_cast<const uint8_t *>(buffer),static_cast<const uint8_t *>(buffer)+length);
+        else r.meta.cover.clear();
+        r.meta.cover_ns=now_ns();++r.meta.cover_generation;++r.meta.generation;
+        fprintf(stderr,"[now-playing] cover %d bytes\n",length);
+    };
+    // Called when the sender tears its audio stream down - also when an iPhone
+    // locks and sets the stream up again without resending the cover. The
+    // cover stays; a track that arrives without one hides it (see main.cpp).
+    cb.audio_stop_coverart_rendering=[](void *){};
+    cb.audio_set_progress=[](void *p,uint32_t *start,uint32_t *current,uint32_t *end){
+        Receiver& r=self(p);std::lock_guard<std::mutex> l(r.meta_mutex);
+        if(start&&current&&end){r.meta.start=*start;r.meta.current=*current;r.meta.end=*end;r.meta.progress_ns=now_ns();++r.meta.generation;}
     };
     cb.display_pin=[](void *p,char *pin){Receiver& r=self(p);std::lock_guard<std::mutex> l(r.mutex);r.pairing.update_pin(pin?pin:"");r.message="Enter this code on your Apple device";};
     cb.passwd=[](void *,int *n)->const char *{*n=0;return nullptr;};
@@ -268,6 +313,7 @@ void Receiver::disconnect() {
     if(raop) raop_remove_known_connections(raop);
     clear(); has_audio=false;mirror=false;paused=false;reset=false;audio_flush=false;last_audio_arrival=0;incoming_video_codec=0;
     audio_using_screen=false;audio_is_media=false;audio_samples_per_frame=audio_format=0;
+    {std::lock_guard<std::mutex> l(meta_mutex);const uint64_t g=meta.generation+1,c=meta.cover_generation+1;meta=NowPlaying();meta.generation=g;meta.cover_generation=c;}
     show("Waiting for a connection");
 }
 void Receiver::stop() {

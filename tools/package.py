@@ -51,8 +51,17 @@ def main():
     subprocess.run([str(strip), str(stage / 'uxair')], check=True)
     subprocess.run(['python3', str(ROOT / 'tools/verify-elf.py'), str(stage)], check=True)
     (ROOT / 'dist').mkdir(exist_ok=True)
-    subprocess.run(['ares-package', str(stage), '-o', str(ROOT / 'dist')], check=True)
-    package = ROOT / 'dist' / f"{app['id']}_{app['version']}_arm.ipk"
+    # one package per player: ndl for webOS 5 and later, starfish for webOS 3-4
+    backend_marker = ROOT / 'build/media-backend.txt'
+    backend = backend_marker.read_text().strip() if backend_marker.exists() else 'ndl'
+    platform = {'ndl': 'webos5plus', 'starfish': 'webos3-4'}[backend]
+    package = ROOT / 'dist' / f"{app['id']}_{app['version']}_arm-{platform}.ipk"
+    if shutil.which('ares-package'):
+        subprocess.run(['ares-package', str(stage), '-o', str(ROOT / 'dist')], check=True)
+        (ROOT / 'dist' / f"{app['id']}_{app['version']}_arm.ipk").replace(package)
+    else:
+        # no webOS CLI (e.g. an offline Linux build host): same IPK layout
+        subprocess.run(['python3', str(ROOT / 'tools/make-ipk.py'), str(stage), str(package)], check=True)
     if not package.is_file() or not package.stat().st_size:
         raise SystemExit(f'Expected nonempty package was not produced: {package}')
     print(f'Packaged {package}')

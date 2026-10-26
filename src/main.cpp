@@ -8,8 +8,11 @@
 #include "identity.h"
 #include "settings.h"
 #include "usage_stats.h"
+#include "system_bus.h"
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <algorithm>
 #include <fstream>
 #include <ctime>
@@ -49,11 +52,23 @@ static std::string utc_text(uint64_t epoch) {
     char text[48];strftime(text,sizeof(text),"%Y-%m-%d %H:%M UTC",&value);return text;
 }
 
-int main() {
+// When frames are due. Starfish (webOS 3-4) needs a PTS pre-roll after Load
+// and paces by PTS itself. NDL (webOS 5+) renders as data arrives: the schedule
+// is anchored to the first frame's arrival, so frames queued during Load go out
+// at once, and no video frame waits more than 50 ms after it arrived.
+#if defined(UXAIR_MEDIA_NDL)
+static int64_t schedule_start(int64_t arrival_ns,int64_t now,int64_t) {return arrival_ns?arrival_ns:now;}
+static const int64_t kMaxHoldNs=50000000LL;
+#else
+static int64_t schedule_start(int64_t,int64_t now,int64_t preroll_ns) {return now+preroll_ns;}
+static const int64_t kMaxHoldNs=0;
+#endif
+
+int main(int argc,char **argv) {
     umask(0077);start_log("uxair.log");
     Shell shell;if(!shell.open())return 1;
     shell.screen("Starting AirPlay receiver","");
-    const std::string state_dir=app_directory()+"/state";
+    const std::string state_dir=data_directory()+"/state";
     std::string build_commit="Unknown",build_version="Unknown";
     {
         std::ifstream build_info((app_directory()+"/build-info.txt").c_str());
@@ -110,6 +125,20 @@ int main() {
             runtime_app_id&&*runtime_app_id?"APPID":"compiled-fallback",app_id,UXAIR_APP_ID,
             int(std::string(app_id)==UXAIR_APP_ID));
     Media media;AudioDecoder decoder;HevcStream hevc;HevcStartupGate hevc_startup;
+    // the TV's system bus: screen saver, coming to the front, going back
+    SystemBus bus;bus.start(app_id);
+    unsigned seen_stream_requests=0;
+    // started at boot with {"background":true}: stay discoverable behind the Home
+    // screen. Asked once the window is up - earlier, UxAir's own window comes to
+    // the front after the Home screen.
+    bool start_in_background=argc>1 && strstr(argv[1],"\"background\":true");
+    std::string return_to;   // {"return_to":"<app>"}: the app that was in front then
+    if(argc>1) {
+        const char *r=strstr(argv[1],"\"return_to\"");
+        const char *q=r?strchr(r+11,'"'):nullptr;
+        const char *e=q?strchr(q+1,'"'):nullptr;
+        if(e)return_to.assign(q+1,e);
+    }
     UiNavigation nav;
     UiPage& page=nav.page;
     int& focus=nav.focus;
@@ -141,6 +170,8 @@ int main() {
     int64_t audio_end=0;
     std::vector<uint8_t> silence(441*4,0);
     int64_t start=0,last_ui=0,last_stats=now_ns(),last_live=last_stats,stall=0,session_started=0,app_started=last_stats;
+    // Now Playing (audio-only): last draw, last full-brightness moment, shown track and progress
+    int64_t np_drawn=0,np_bright=0,np_flash=0,np_tick=0,np_progress_seen=0,np_fed_at=0;uint64_t np_generation=0,np_fed=0;double np_elapsed=0;std::string np_track;bool np_anim=false;
     unsigned video_count=0,audio_count=0,decode_errors=0,late_audio=0,silence_blocks=0,invalid_video=0;
     unsigned sessions_started=0,sessions_ended=0,last_decoder_events=0,hevc_transport_failures=0;
     uint64_t last_feed_video=0,last_feed_audio=0,last_feed_video_retries=0,last_feed_audio_retries=0;
@@ -180,10 +211,10 @@ int main() {
             if(!save_usage_stats(state_dir+"/usage-v1",usage))fprintf(stderr,"[stats] could not save usage history\n");
             history_storage=usage_storage_bytes(state_dir+"/usage-v1");history_dirty=true;
         }
-        media.close();decoder.reset();hevc.reset();hevc_startup.reset();if(!preserve_receiver)receiver.disconnect();opened=false;have_pending=preserve_pending;
+        media.close();decoder.reset();hevc.reset();hevc_startup.reset();if(!preserve_receiver){receiver.disconnect();bus.return_to_previous();}opened=false;have_pending=preserve_pending;
         origin=0;start=0;stall=0;session_started=0;audio_end=0;configuration.clear();last_ui=0;last_paused=false;audio_started=false;audio_only_playback=false;audio_flush_paused=false;
         session_success=false;session_started_utc=0;observed_width=observed_height=0;hardware_decoder_errors=0;
-        nav=UiNavigation();ui_visible=true;
+        nav=UiNavigation();ui_visible=true;np_drawn=np_progress_seen=np_flash=0;np_elapsed=0;np_track.clear();
         video_feed_timing.reset();video_parse_time.reset();video_schedule_late.reset();video_pending_time.reset();
         video_feed_time.reset();audio_feed_time.reset();media_tick_time.reset();
         width=settings.width;height=settings.height;
@@ -421,14 +452,29 @@ int main() {
         if(previous_loop)loop_gap_time.record(uint64_t(std::max<int64_t>(0,now-previous_loop)));
         previous_loop=now;
         Action action=shell.action();
+        if(action!=Action::None)np_bright=now;   // any key brightens Now Playing again
+        bus.block_screen_saver(opened);
+        if(start_in_background && now-app_started>2500000000LL) {
+            start_in_background=false;fprintf(stderr,"[bus] started in the background\n");
+            bus.to_background(return_to.empty()?nullptr:return_to.c_str());
+        }
+        // a device starts streaming (or needs the PIN): to the front, as LG's AirPlay
+        const unsigned stream_requests=receiver.stream_requests.load();
+        if(stream_requests!=seen_stream_requests) {seen_stream_requests=stream_requests;bus.bring_to_front();}
         if(shell.take_pointer_motion()&&ui_visible&&page==UiPage::History)last_ui=0;
-        if(action==Action::Exit)break;
+        // Exit and Back keep UxAir running (discoverable) behind the other apps
+        if(action==Action::Exit) {
+            if(opened||receiver.mirror||!receiver.pin().empty())finish();
+            else bus.to_background();
+            action=Action::None;
+        }
         std::string pairing_pin=receiver.pin();
         const bool pairing_changed=pairing_pin!=last_rendered_pin;
         if(pairing_changed) {
             fprintf(stderr,"[pairing] UI observed prompt=%s\n",pairing_pin.empty()?"dismissed":"shown");
             last_rendered_pin=pairing_pin;last_ui=0;
             if(opened && !ui_visible)pairing_overlay_dirty=true;
+            if(!pairing_pin.empty())bus.bring_to_front();
         }
         const PairingInputResult pairing_input=pairing_input_result(!pairing_pin.empty(),action==Action::Back,action==Action::Exit);
         if((pairing_input==PairingInputResult::Consumed || donation_open) && action!=Action::Back)action=Action::None;
@@ -459,10 +505,10 @@ int main() {
             }
             else if(donation_open) {donation_open=false;last_ui=0;}
             else if(ui_visible && nav.dialog!=UiDialogKind::None) {nav.back();last_ui=0;}
-            else if(opened && ui_visible) {ui_visible=false;shell.transparent();last_ui=0;}
+            else if(opened && ui_visible) {ui_visible=false;shell.transparent();last_ui=0;np_drawn=0;}
             else if(ui_visible && nav.back()) {last_ui=0;}
             else if(opened||receiver.mirror||!receiver.pin().empty())finish();
-            else break;
+            else bus.to_background();
         }
         if(ui_visible && (action==Action::Up||action==Action::Down)) {
             int delta=action==Action::Down?1:-1;
@@ -570,7 +616,7 @@ int main() {
             live_feed_fps=opened?(feed>=live_feed_last?feed-live_feed_last:feed)/seconds:0;
             live_ingress_last=ingress;live_feed_last=feed;
             live_queue=receiver.queue_snapshot();live_rss_kb=process_rss_kb();last_live=now;
-            if(opened && !ui_visible && settings.diagnostics!=DiagnosticsMode::Off && pairing_pin.empty()) {
+            if(opened && !ui_visible && !audio_only_playback && settings.diagnostics!=DiagnosticsMode::Off && pairing_pin.empty()) {
                     std::vector<std::string> lines;
                     if(audio_only_playback) {
                         lines.push_back(std::string("AirPlay audio ")+audio_codec_name(receiver.last_audio_codec.load())+"  -  "+(media.playing?"Playing":media.ready?"Loaded":"Loading"));
@@ -604,6 +650,50 @@ int main() {
         if(pairing_overlay_dirty && opened && !ui_visible) {
             shell.overlay(last_overlay_lines,pairing_pin);
             pairing_overlay_dirty=false;
+        }
+        // Audio-only: the Now Playing screen (as LG's own AirPlay shows), redrawn
+        // every second for progress and drift, and at once when the sender reports
+        // a change. For the OLED: after two idle minutes (no new track, no key) it
+        // dims over three minutes to 35%, and the layout drifts slowly all along.
+        if(opened && audio_only_playback && !ui_visible && pairing_pin.empty()) {
+            NowPlaying m=receiver.now_playing();
+            const std::string track=m.artist+" | "+m.title;
+            if(track!=np_track) {np_track=track;np_flash=now;np_drawn=0;}
+            if(m.generation!=np_generation) {np_generation=m.generation;np_drawn=0;}
+            if(!np_drawn || now-np_drawn>(np_anim?33000000LL:1000000000LL)) {
+                // Playing = audio handed to the player lately. Arrivals do not tell:
+                // AirPlay audio comes in bursts well ahead of playback.
+                const uint64_t fed=media.feed_audio_accepted.load();
+                if(fed!=np_fed) {np_fed=fed;np_fed_at=now;}
+                const bool playing=np_fed_at && now-np_fed_at<1500000000LL;
+                const uint32_t length=m.end-m.start;   // RTP timestamps wrap; unsigned difference
+                if(m.progress_ns && m.progress_ns!=np_progress_seen) {
+                    np_progress_seen=m.progress_ns;
+                    np_elapsed=uint32_t(m.current-m.start)/44100.0+(playing?(now-m.progress_ns)/1e9:0);
+                } else if(playing && np_tick) np_elapsed+=(now-np_tick)/1e9;
+                np_tick=now;
+                NowPlayingView v;
+                v.title=m.title;v.artist=m.artist;v.album=m.album;v.source=m.source;
+                // A cover from before the current track (one that came without
+                // artwork) is hidden; iOS sends a track's cover just before its text.
+                static const std::vector<uint8_t> no_cover;
+                const bool stale_cover=m.track_ns>m.cover_ns+5000000000LL && now>m.track_ns+5000000000LL;
+                v.cover=stale_cover?&no_cover:&m.cover;
+                v.cover_generation=stale_cover?(m.cover_generation|(uint64_t(1)<<63)):m.cover_generation;
+                if(length) {v.duration_s=length/44100.0;v.elapsed_s=std::min(v.duration_s,np_elapsed);}
+                // Dimming follows the remote only: 20 s without a key, then down to
+                // 35% within 10 s. A new track shows at full brightness for 8 s and
+                // fades back over 2 s. Fades redraw at 30 fps.
+                const double idle=(now-np_bright)/1e9;
+                double brightness=idle<20?1.0:std::max(0.35,1.0-(idle-20)/10*0.65);
+                const double since_track=np_flash?(now-np_flash)/1e9:1e9;
+                if(since_track<10)brightness=since_track<8?1.0:1.0-(since_track-8)/2*(1.0-brightness);
+                v.brightness=float(brightness);
+                const bool fading=(idle>=20&&idle<30)||(since_track>=8&&since_track<10);
+                const double t=(now-session_started)/1e9;
+                v.dx=int(24*std::sin(t*2*M_PI/600));v.dy=int(16*std::sin(t*2*M_PI/420));
+                np_anim=shell.now_playing(v)||fading;np_drawn=now;
+            }
         }
         if(now-last_stats>5000000000LL) {
             double window_s=(now-last_stats)/1e9;
@@ -691,7 +781,7 @@ int main() {
             video_count=audio_count=decode_errors=late_audio=silence_blocks=invalid_video=0;
             audio_end=0;audio_started=false;audio_decode_calls=audio_decode_ns=audio_decode_max_ns=0;
             last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
-            ui_visible=false;shell.transparent();
+            ui_visible=false;shell.transparent();np_drawn=0;np_bright=now_ns();
             fprintf(stderr,"[audio-only] session started codec=%u sample_rate=44100 output=PCM-stereo timestamps=remote-ntp\n",intent.codec);
         }
         if(!opened && pending.video) {
@@ -761,7 +851,8 @@ int main() {
             }
             // The pre-roll starts after synchronous decoder initialization.
             // Reusing the loop's old `now` would silently consume it in Load().
-            opened=true;origin=pending.timestamp;session_started=now_ns();start=session_started+200000000;stall=0;++sessions_started;
+            opened=true;origin=pending.timestamp;session_started=now_ns();
+            start=schedule_start(pending.arrival_ns,session_started,200000000LL);stall=0;++sessions_started;
             if(incoming_hevc)hevc_transport_failures=0;
             session_started_utc=uint64_t(std::time(nullptr));session_success=false;
             ingress_at_start=receiver.total_video_arrivals.load();if(ingress_at_start)--ingress_at_start;
@@ -785,6 +876,11 @@ int main() {
         if(pts<0){have_pending=false;continue;}
         // Large clock discontinuities require a fresh AirPlay session, not an unbounded queue.
         if(pts>now-start+5000000000LL) {fprintf(stderr,"[session] timestamp discontinuity\n");finish(true);receiver.show("Device clock changed. Connect again.");continue;}
+        // NDL: a schedule that fell behind (anchored to a keyframe held over a
+        // reinit) catches up; audio shares the same start, so it shifts with
+        // the picture.
+        if(kMaxHoldNs && pending.video && pending.arrival_ns && start+pts>pending.arrival_ns+kMaxHoldNs)
+            start=pending.arrival_ns+kMaxHoldNs-pts;
         if(now<start+pts) {
             if(session_codec==MirrorCodec::ExperimentalHevc && video_count==0 && !hevc_schedule_wait_logged) {
                 fprintf(stderr,"[codec-start] feed-wait reason=pts-schedule remaining_ms=%.0f\n",(start+pts-now)/1e6);
@@ -821,7 +917,7 @@ int main() {
                     std::min(settings.width,1920),std::min(settings.height,1080),MirrorCodec::H264,settings.max_fps);
                 fprintf(stderr,"[media-init] reopen_ms=%.2f success=%d\n",(now_ns()-open_begin)/1e6,int(media_opened));
                 if(!media_opened) {report_media_start_failure(false,"h264-reopen-failed");continue;}
-                origin=pending.timestamp;start=now_ns();pts=0;audio_end=0;audio_started=false;decoder.reset();
+                origin=pending.timestamp;start=schedule_start(pending.arrival_ns,now_ns(),0);pts=0;audio_end=0;audio_started=false;decoder.reset();
                 video_feed_timing.reset();
                 live_feed_last=0;
                 last_decoder_events=0;last_feed_video=last_feed_audio=0;last_feed_video_retries=last_feed_audio_retries=0;
@@ -872,7 +968,7 @@ int main() {
                 hevc_schedule_wait_logged=false;stall=0;last_paused=false;
                 fprintf(stderr,"[codec-start] load-accepted=1 reason=parameter-change input=%dx%d\n",width,height);
                 hevc_wait_keyframe=false;
-                origin=pending.timestamp;start=now_ns()+200000000;pts=0;audio_end=0;audio_started=false;decoder.reset();
+                origin=pending.timestamp;start=schedule_start(pending.arrival_ns,now_ns(),200000000LL);pts=0;audio_end=0;audio_started=false;decoder.reset();
                 video_feed_timing.reset();live_feed_last=0;
                 last_decoder_events=0;last_feed_video=last_feed_audio=0;
                 last_feed_video_retries=last_feed_audio_retries=0;
@@ -884,7 +980,7 @@ int main() {
             pending.codec=3; // Parsed; retain AU unchanged across Feed retries.
             if(reopened) {
                 fprintf(stderr,"[codec-start] reinit-keyframe retained=1 bytes=%zu pts_ns=0\n",pending.data.size());
-                continue; // The next loop honors the new 200 ms PTS preroll.
+                continue; // The next loop honors the new schedule (Starfish: its 200 ms PTS pre-roll).
             }
         }
         HevcFeedStage hevc_feed_stage=HevcFeedStage::Loaded;

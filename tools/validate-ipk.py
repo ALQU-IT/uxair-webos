@@ -52,7 +52,10 @@ def main():
     staged = json.loads((stage / 'appinfo.json').read_text())
     if staged != app:
         fail('staged appinfo does not match requested package identity')
-    package = ROOT / 'dist' / f"{app['id']}_{app['version']}_arm.ipk"
+    backend_marker = ROOT / 'build/media-backend.txt'   # as tools/package.py names it
+    backend = backend_marker.read_text().strip() if backend_marker.exists() else 'ndl'
+    platform = {'ndl': 'webos5plus', 'starfish': 'webos3-4'}[backend]
+    package = ROOT / 'dist' / f"{app['id']}_{app['version']}_arm-{platform}.ipk"
     if not package.is_file():
         fail(f'missing {package.name}')
     members = ar_members(package)

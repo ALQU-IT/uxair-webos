@@ -61,14 +61,22 @@ jobs:
           command -v ares-package
       - name: Validate source metadata
         run: python3 tools/validate-metadata.py
-      - name: Build UxAir 1.1.0 production IPK
-        run: tools/build.sh
+      # One package per player: Starfish/ACB for webOS 3-4, NDL for webOS 5+.
+      # Each is verified right after its build (they share build/app).
+      - name: Build and verify the webOS 3-4 (Starfish) IPK
+        run: |
+          tools/build.sh --media=starfish
+          python3 tools/verify-elf.py build/app | tee dist/ELF_REPORT-webos3-4.txt
+          python3 tools/validate-ipk.py
+      - name: Build and verify the webOS 5+ (NDL) IPK
+        run: |
+          tools/build.sh --media=ndl
+          python3 tools/verify-elf.py build/app | tee dist/ELF_REPORT-webos5plus.txt
+          python3 tools/validate-ipk.py
       - name: Build corresponding source archive
         run: tools/source-package.py
-      - name: Verify staged ELF and package
-        run: |
-          python3 tools/verify-elf.py build/app | tee dist/ELF_REPORT.txt
-          python3 tools/validate-ipk.py
+      - name: Combine ELF reports
+        run: cat dist/ELF_REPORT-webos3-4.txt dist/ELF_REPORT-webos5plus.txt > dist/ELF_REPORT.txt
       - name: Record source commit and package checksum
         run: |
           git rev-parse HEAD > dist/BUILD_COMMIT.txt

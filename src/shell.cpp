@@ -3,9 +3,11 @@
 #include "usage_stats.h"
 #include <SDL_webOS.h>
 #include <SDL_ttf.h>
+#include <dlfcn.h>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <time.h>
 #include <sys/stat.h>
@@ -41,8 +43,25 @@ std::string app_directory() {
     if (n <= 0) return ".";
     p[n] = 0; std::string s(p); return s.substr(0, s.rfind('/'));
 }
+// Where the app may write (log, pairing keys, settings): its own folder when
+// writable (webOS 3.9). On webOS 10 a jailed app runs as its own user over a
+// root-owned folder, so then a folder of its own on the developer partition,
+// which the jail mounts writable and keeps across restarts.
+std::string data_directory() {
+    static std::string dir;
+    if (!dir.empty()) return dir;
+    std::string app = app_directory();
+    if (access(app.c_str(), W_OK) == 0) return dir = app;
+    std::string id = app.substr(app.rfind('/') + 1);
+    std::string d = "/media/developer/apps/var/lib/" + id;
+    mkdir(d.c_str(), 0700);
+    if (access(d.c_str(), W_OK) == 0) return dir = d;
+    d = "/tmp/" + id;
+    mkdir(d.c_str(), 0700);
+    return dir = d;
+}
 void start_log(const char *name) {
-    std::string p = app_directory() + "/" + name;
+    std::string p = data_directory() + "/" + name;
     log_path=p;
     rename(p.c_str(), (p+".previous").c_str());
     freopen(p.c_str(), "w", stderr);
@@ -82,6 +101,11 @@ bool Shell::open() {
     if(pin_font_)TTF_SetFontStyle(pin_font_,TTF_STYLE_BOLD);
     if(pin_font_small_)TTF_SetFontStyle(pin_font_small_,TTF_STYLE_BOLD);
     if(!font_||!large_||!small_||!pin_font_||!pin_font_small_) {fprintf(stderr,"[font] %s\n",TTF_GetError());return false;}
+    np_title_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",66);
+    np_artist_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",44);
+    np_album_=TTF_OpenFont("/usr/share/fonts/LG_Display-Regular.ttf",34);
+    if(np_title_)TTF_SetFontStyle(np_title_,TTF_STYLE_BOLD);
+    if(!np_title_||!np_artist_||!np_album_)fprintf(stderr,"[font] now playing: %s\n",TTF_GetError());
     SDL_Surface *qr=SDL_LoadBMP((app_directory()+"/bmc-qr.bmp").c_str());
     if(qr) {donation_qr_=SDL_CreateTextureFromSurface(renderer,qr);SDL_FreeSurface(qr);}
     if(!donation_qr_)fprintf(stderr,"[donation] bundled QR image unavailable: %s\n",SDL_GetError());
@@ -93,6 +117,156 @@ bool Shell::open() {
 void Shell::transparent() {
     SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(renderer,0,0,0,0); SDL_RenderClear(renderer); SDL_RenderPresent(renderer);
+}
+// SDL2_image, loaded at run time: a TV without it shows no cover art.
+typedef SDL_Surface *(*load_image_fn)(SDL_RWops *, int);
+static load_image_fn load_image() {
+    static load_image_fn fn=nullptr;
+    static bool tried=false;
+    if(!tried) {
+        tried=true;
+        void *lib=dlopen("libSDL2_image-2.0.so.0",RTLD_NOW|RTLD_GLOBAL);
+        fn=lib?reinterpret_cast<load_image_fn>(dlsym(lib,"IMG_Load_RW")):nullptr;
+        if(!fn)fprintf(stderr,"[now-playing] SDL2_image unavailable, no cover art: %s\n",dlerror());
+    }
+    return fn;
+}
+static std::string clock_text(double seconds) {
+    const int t=int(std::max(0.0,seconds)+0.5);
+    char text[16];snprintf(text,sizeof text,"%d:%02d",t/60,t%60);return text;
+}
+// LG's UI font has no typographic quotes, dashes or ellipsis (drawn as boxes):
+// track names often use them, so they become their plain forms.
+static std::string plain_punctuation(std::string s) {
+    static const char *const map[][2]={
+        {"\xE2\x80\x98","'"},{"\xE2\x80\x99","'"},{"\xE2\x80\x9A","'"},{"\xE2\x80\x9B","'"},
+        {"\xE2\x80\x9C","\""},{"\xE2\x80\x9D","\""},{"\xE2\x80\x9E","\""},
+        {"\xE2\x80\x93","-"},{"\xE2\x80\x94","-"},{"\xE2\x80\xA6","..."},{"\xC2\xA0"," "}};
+    for(const auto& m:map)
+        for(size_t p;(p=s.find(m[0]))!=std::string::npos;)s.replace(p,strlen(m[0]),m[1]);
+    return s;
+}
+// s, shortened with an ellipsis to max_width (whole UTF-8 characters)
+static std::string fit_text(TTF_Font *font,const std::string& s,int max_width) {
+    int w=0;
+    if(!font||TTF_SizeUTF8(font,s.c_str(),&w,nullptr)||w<=max_width)return s;
+    const std::string dots="...";
+    std::string t=s;
+    while(!t.empty()) {
+        while(!t.empty()&&(static_cast<unsigned char>(t.back())&0xC0)==0x80)t.pop_back();
+        if(!t.empty())t.pop_back();
+        const std::string c=t+dots;
+        if(!TTF_SizeUTF8(font,c.c_str(),&w,nullptr)&&w<=max_width)return c;
+    }
+    return dots;
+}
+bool Shell::now_playing(const NowPlayingView& v) {
+    int w=0,h=0;SDL_GetRendererOutputSize(renderer,&w,&h);
+    if(v.cover_generation!=cover_generation_) {
+        if(cover_){SDL_DestroyTexture(cover_);cover_=nullptr;}
+        cover_tint_=uxair_navy;
+        if(v.cover&&!v.cover->empty()) {
+            SDL_RWops *rw=SDL_RWFromConstMem(v.cover->data(),int(v.cover->size()));
+            const load_image_fn load=load_image();
+            SDL_Surface *image=rw&&load?load(rw,1):nullptr;
+            if(rw&&!load)SDL_RWclose(rw);
+            if(image) {
+                // the cover's average colour tints the background
+                SDL_Surface *rgba=SDL_ConvertSurfaceFormat(image,SDL_PIXELFORMAT_RGBA32,0);
+                if(rgba&&!SDL_LockSurface(rgba)) {
+                    uint64_t r=0,g=0,b=0,n=0;
+                    for(int y=0;y<rgba->h;y+=std::max(1,rgba->h/32))
+                        for(int x=0;x<rgba->w;x+=std::max(1,rgba->w/32)) {
+                            const Uint8 *px=static_cast<const Uint8 *>(rgba->pixels)+y*rgba->pitch+x*4;
+                            r+=px[0];g+=px[1];b+=px[2];++n;
+                        }
+                    SDL_UnlockSurface(rgba);
+                    if(n)cover_tint_={Uint8(r/n),Uint8(g/n),Uint8(b/n),255};
+                }
+                if(rgba)SDL_FreeSurface(rgba);
+                cover_=SDL_CreateTextureFromSurface(renderer,image);
+                SDL_FreeSurface(image);
+            } else if(load) fprintf(stderr,"[now-playing] cover not decoded: %s\n",SDL_GetError());
+        }
+        cover_generation_=v.cover_generation;
+    }
+    const float b=std::max(0.f,std::min(1.f,v.brightness));
+    auto dim=[&](SDL_Color c,float f){return SDL_Color{Uint8(c.r*b*f),Uint8(c.g*b*f),Uint8(c.b*b*f),c.a};};
+    // background: the cover's colour, darkened, towards black at the bottom
+    // (a 1 x 256 gradient, made once per cover, stretched; dimmed by colour mod)
+    static uint64_t background_generation=~uint64_t(0);
+    if(!background_||background_generation!=cover_generation_) {
+        if(background_)SDL_DestroyTexture(background_);
+        background_=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,1,256);
+        Uint8 px[256*4];
+        for(int i=0;i<256;++i) {
+            const float f=0.45f-0.33f*i/255.f;
+            px[i*4]=Uint8(cover_tint_.r*f);px[i*4+1]=Uint8(cover_tint_.g*f);px[i*4+2]=Uint8(cover_tint_.b*f);px[i*4+3]=255;
+        }
+        if(background_)SDL_UpdateTexture(background_,nullptr,px,4);
+        background_generation=cover_generation_;
+    }
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_NONE);
+    if(background_) {SDL_SetTextureColorMod(background_,Uint8(255*b),Uint8(255*b),Uint8(255*b));SDL_RenderCopy(renderer,background_,nullptr,nullptr);}
+    SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_BLEND);
+    const int size=h*50/100, cx=w*12/100+v.dx, cy=(h-size)/2+v.dy;
+    fill_round_rect(renderer,{cx+12,cy+18,size,size},18,{0,0,0,Uint8(120*b)});
+    SDL_Rect art={cx,cy,size,size};
+    if(cover_) {
+        SDL_SetTextureColorMod(cover_,Uint8(255*b),Uint8(255*b),Uint8(255*b));
+        SDL_RenderCopy(renderer,cover_,nullptr,&art);
+    } else {
+        fill_round_rect(renderer,art,18,dim(uxair_surface,1));
+        int lw=0,lh=0;TTF_SizeUTF8(np_title_,"AirPlay",&lw,&lh);
+        text_at("AirPlay",cx+(size-lw)/2,cy+(size-lh)/2,size,np_title_,dim(uxair_accent,1));
+    }
+    const int tx=cx+size+90, tw=w-tx-w*8/100;
+    int y=cy+size*12/100;
+    const std::string source=plain_punctuation(v.source.empty()?"AirPlay on UxAir":"AirPlay from "+v.source);
+    text_at(fit_text(small_,source,tw),tx,y,tw,small_,dim({150,175,190,255},1));
+    y+=TTF_FontLineSkip(small_)+18;
+    // The title scrolls when too wide: 3 s at the start, glides left until its
+    // end shows, 5 s there, glides back, again.
+    const std::string title=plain_punctuation(v.title.empty()?"Unknown title":v.title);
+    if(title!=title_text_||!title_) {
+        if(title_){SDL_DestroyTexture(title_);title_=nullptr;}
+        SDL_Surface *s=TTF_RenderUTF8_Blended(np_title_,title.c_str(),uxair_text);
+        if(s){title_=SDL_CreateTextureFromSurface(renderer,s);title_w_=s->w;title_h_=s->h;SDL_FreeSurface(s);}
+        title_text_=title;title_since_=SDL_GetTicks();
+    }
+    bool animating=false;
+    if(title_) {
+        int offset=0;
+        const int overflow=title_w_-tw;
+        if(overflow>0) {
+            animating=true;
+            const double hold_start=3.0,out=std::max(1.0,overflow/90.0),hold_end=5.0,back=std::max(0.6,overflow/240.0);
+            double t=std::fmod((SDL_GetTicks()-title_since_)/1000.0,hold_start+out+hold_end+back);
+            auto ease=[](double x){return x*x*(3-2*x);};
+            if(t<hold_start) offset=0;
+            else if((t-=hold_start)<out) offset=int(overflow*ease(t/out));
+            else if((t-=out)<hold_end) offset=overflow;
+            else offset=int(overflow*(1-ease((t-hold_end)/back)));
+        }
+        SDL_SetTextureColorMod(title_,Uint8(255*b),Uint8(255*b),Uint8(255*b));
+        SDL_Rect src={offset,0,std::min(title_w_,tw),title_h_}, dst={tx,y,src.w,title_h_};
+        SDL_RenderCopy(renderer,title_,&src,&dst);
+    }
+    y+=TTF_FontLineSkip(np_title_)+8;
+    if(!v.artist.empty()) {text_at(fit_text(np_artist_,plain_punctuation(v.artist),tw),tx,y,tw,np_artist_,dim({222,232,242,255},1));y+=TTF_FontLineSkip(np_artist_)+6;}
+    if(!v.album.empty()) text_at(fit_text(np_album_,plain_punctuation(v.album),tw),tx,y,tw,np_album_,dim({160,182,198,255},1));
+    if(v.duration_s>0) {
+        const int py=cy+size*82/100;
+        const double fraction=std::max(0.0,std::min(1.0,v.elapsed_s/v.duration_s));
+        fill_round_rect(renderer,{tx,py,tw,8},4,{255,255,255,Uint8(60*b)});
+        if(fraction>0)fill_round_rect(renderer,{tx,py,std::max(8,int(tw*fraction)),8},4,dim(uxair_text,1));
+        const std::string remaining="-"+clock_text(v.duration_s-v.elapsed_s);
+        int rw=0;TTF_SizeUTF8(small_,remaining.c_str(),&rw,nullptr);
+        text_at(clock_text(v.elapsed_s),tx,py+22,tw/2,small_,dim({170,190,205,255},1));
+        text_at(remaining,tx+tw-rw,py+22,rw,small_,dim({170,190,205,255},1));
+    }
+    SDL_RenderPresent(renderer);
+    return animating;
 }
 Action Shell::action() {
     SDL_Event e;
@@ -457,4 +631,4 @@ void Shell::screen(const std::string& status,const std::string& pin,int delay) {
     text("Same Wi-Fi network  ·  Quality in Settings  ·  Back to exit",h-80,font_,{145,167,185,255});
     SDL_RenderPresent(renderer);
 }
-Shell::~Shell() {if(donation_icon_)SDL_DestroyTexture(donation_icon_);if(donation_qr_)SDL_DestroyTexture(donation_qr_);if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);if(pin_font_)TTF_CloseFont(pin_font_);if(pin_font_small_)TTF_CloseFont(pin_font_small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }
+Shell::~Shell() {if(cover_)SDL_DestroyTexture(cover_);if(background_)SDL_DestroyTexture(background_);if(title_)SDL_DestroyTexture(title_);if(np_title_)TTF_CloseFont(np_title_);if(np_artist_)TTF_CloseFont(np_artist_);if(np_album_)TTF_CloseFont(np_album_);if(donation_icon_)SDL_DestroyTexture(donation_icon_);if(donation_qr_)SDL_DestroyTexture(donation_qr_);if(font_)TTF_CloseFont(font_);if(large_)TTF_CloseFont(large_);if(small_)TTF_CloseFont(small_);if(pin_font_)TTF_CloseFont(pin_font_);if(pin_font_small_)TTF_CloseFont(pin_font_small_);TTF_Quit();if(renderer) SDL_DestroyRenderer(renderer); if(window) SDL_DestroyWindow(window); SDL_Quit(); }

@@ -43,22 +43,34 @@ std::string app_directory() {
     if (n <= 0) return ".";
     p[n] = 0; std::string s(p); return s.substr(0, s.rfind('/'));
 }
-// Where the app may write (log, pairing keys, settings): its own folder when
-// writable (webOS 3.9). On webOS 10 a jailed app runs as its own user over a
-// root-owned folder, so then a folder of its own on the developer partition,
-// which the jail mounts writable and keeps across restarts.
+// Where the app may write (log, pairing keys, settings). webOS 3.9: its own
+// folder. webOS 5+ (NDL build): a folder of its own on the developer
+// partition, which the jail mounts writable and keeps across restarts and
+// reinstalls. The app folder is no choice there: an install replaces it, and
+// after a restart the TV leaves it writable for everyone, so testing it for
+// write access would switch to an empty state (new identity, default
+// settings). A webOS 3-4 build also stays with var/lib once that exists.
 std::string data_directory() {
     static std::string dir;
     if (!dir.empty()) return dir;
     std::string app = app_directory();
-    if (access(app.c_str(), W_OK) == 0) return dir = app;
     std::string id = app.substr(app.rfind('/') + 1);
-    std::string d = "/media/developer/apps/var/lib/" + id;
-    mkdir(d.c_str(), 0700);
-    if (access(d.c_str(), W_OK) == 0) return dir = d;
-    d = "/tmp/" + id;
-    mkdir(d.c_str(), 0700);
-    return dir = d;
+    std::string lib = "/media/developer/apps/var/lib/" + id;
+#if defined(UXAIR_MEDIA_NDL)
+    const bool use_lib = true;
+#else
+    const bool use_lib = access(lib.c_str(), W_OK) == 0;
+#endif
+    if (!use_lib && access(app.c_str(), W_OK) == 0) return dir = app;
+    mkdir(lib.c_str(), 0700);
+    if (access(lib.c_str(), W_OK) == 0) {
+        chmod(lib.c_str(), 0700);   // a restart opens it to everyone, too
+        return dir = lib;
+    }
+    if (access(app.c_str(), W_OK) == 0) return dir = app;
+    std::string tmp = "/tmp/" + id;
+    mkdir(tmp.c_str(), 0700);
+    return dir = tmp;
 }
 void start_log(const char *name) {
     std::string p = data_directory() + "/" + name;
